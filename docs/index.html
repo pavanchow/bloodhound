@@ -2,11 +2,731 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>bloodhound</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bloodhound - a time-travel debugger</title>
+<style>
+:root {
+  --bg: #f5f5f7;
+  --panel: #ffffff;
+  --panel-2: #fafafa;
+  --fg: #1d1d1f;
+  --muted: #6e6e73;
+  --border: #d2d2d7;
+  --accent: #0071e3;
+  --accent-soft: #e8f1fe;
+  --current: #fff7d6;
+  --current-border: #f5c518;
+  --changed: #d1f0d8;
+  --changed-border: #34c759;
+  --bp: #ff3b30;
+  --stack-fill: #0071e3;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 32px 20px 80px; }
+
+header.hero { text-align: center; padding: 24px 0 8px; }
+header.hero h1 { font-size: 40px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+header.hero p { color: var(--muted); font-size: 18px; margin: 8px auto 0; max-width: 640px; }
+header.hero a { color: var(--accent); text-decoration: none; }
+header.hero a:hover { text-decoration: underline; }
+
+.toolbar {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 12px; margin: 20px 0; box-shadow: var(--shadow);
+}
+button, select {
+  font-family: var(--sans); font-size: 14px; font-weight: 500;
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--fg);
+  padding: 8px 14px; border-radius: 10px; cursor: pointer; transition: all .12s ease;
+}
+button:hover { background: var(--accent-soft); border-color: var(--accent); }
+button:active { transform: translateY(1px); }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.primary:hover { filter: brightness(1.06); }
+button:disabled { opacity: .4; cursor: not-allowed; }
+.spacer { flex: 1; }
+.stepbadge {
+  font-family: var(--mono); font-size: 13px; background: var(--accent-soft);
+  color: var(--accent); padding: 6px 12px; border-radius: 999px; font-weight: 600;
+}
+
+.timeline {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 14px 18px; margin-bottom: 20px; box-shadow: var(--shadow);
+}
+.timeline label { font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; }
+input[type=range] { width: 100%; margin-top: 8px; accent-color: var(--accent); height: 24px; }
+
+.grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: 20px; }
+@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 16px 18px; box-shadow: var(--shadow); margin-bottom: 20px;
+}
+.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; }
+
+.code { font-family: var(--mono); font-size: 13.5px; }
+.srcline {
+  display: flex; align-items: baseline; gap: 10px; padding: 2px 8px; border-radius: 7px;
+  cursor: pointer; white-space: pre; border: 1px solid transparent;
+}
+.srcline:hover { background: var(--panel-2); }
+.srcline .gutter { color: var(--muted); width: 44px; text-align: right; user-select: none; flex-shrink: 0; }
+.srcline .bpdot { width: 10px; flex-shrink: 0; color: var(--bp); font-weight: 700; }
+.srcline.current { background: var(--current); border-color: var(--current-border); }
+.srcline.hasbp .gutter { color: var(--bp); font-weight: 700; }
+.srcline .text { flex: 1; }
+
+.rows { font-family: var(--mono); font-size: 13px; }
+.row { display: flex; justify-content: space-between; padding: 4px 8px; border-radius: 7px; }
+.row .k { color: var(--muted); }
+.row .v { font-weight: 600; }
+.row.changed { background: var(--changed); border: 1px solid var(--changed-border); }
+.row.watched .k::before { content: "\1F441  "; }
+.empty { color: var(--muted); font-style: italic; font-size: 13px; padding: 4px 8px; }
+
+.stack-view { display: flex; flex-direction: column-reverse; gap: 4px; }
+.stack-cell {
+  font-family: var(--mono); font-size: 13px; padding: 6px 10px; border-radius: 8px;
+  background: var(--accent-soft); color: var(--accent); border: 1px solid transparent;
+  display: flex; justify-content: space-between;
+}
+.stack-cell.changed { background: var(--changed); color: var(--fg); border-color: var(--changed-border); }
+.stack-cell .idx { color: var(--muted); }
+
+.frame {
+  border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px;
+  background: var(--panel-2); font-family: var(--mono); font-size: 12.5px;
+}
+.frame .fname { font-weight: 700; color: var(--accent); }
+.frame.top { border-color: var(--accent); }
+
+.mem-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+.mem-cell {
+  font-family: var(--mono); font-size: 11px; text-align: center; padding: 6px 2px;
+  border: 1px solid var(--border); border-radius: 7px; background: var(--panel-2);
+}
+.mem-cell.nonzero { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.mem-cell.changed { background: var(--changed); border-color: var(--changed-border); color: var(--fg); }
+.mem-cell .a { color: var(--muted); display: block; font-size: 9px; }
+
+.watchbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.watchbar input { width: 70px; font-family: var(--mono); padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); color: var(--fg); }
+
+.out { font-family: var(--mono); font-size: 13px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; min-height: 22px; }
+
+.howto { line-height: 1.7; }
+.howto h3 { margin: 18px 0 6px; font-size: 16px; }
+.howto ol, .howto ul { margin: 6px 0; padding-left: 22px; }
+.howto code { font-family: var(--mono); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 12.5px; }
+.howto kbd { font-family: var(--sans); background: var(--panel-2); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 6px; padding: 1px 7px; font-size: 12px; }
+.tourbox { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 12px; padding: 12px 16px; margin-top: 12px; font-size: 14px; }
+
+footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 40px; }
+footer a { color: var(--accent); text-decoration: none; }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --panel: #1c1c1e;
+    --panel-2: #2c2c2e;
+    --fg: #f5f5f7;
+    --muted: #98989d;
+    --border: #38383a;
+    --accent: #0a84ff;
+    --accent-soft: #0a2540;
+    --current: #3a3410;
+    --current-border: #b38f00;
+    --changed: #10361b;
+    --changed-border: #2fa84f;
+    --bp: #ff453a;
+    --shadow: 0 1px 3px rgba(0,0,0,0.5);
+  }
+  body { background: var(--bg); color: var(--fg); }
+}
+</style>
 </head>
 <body>
-<h1>bloodhound</h1>
-<p>Site coming soon.</p>
-<p><a href="https://github.com/pavanchow/bloodhound">View repository</a></p>
+<div class="wrap">
+  <header class="hero">
+    <h1>Bloodhound</h1>
+    <p>A portable time-travel debugger. Step backward through a running program, scrub any point on its timeline, and watch state change and un-change. This page is a faithful re-implementation of the engine in <a href="https://github.com/pavanchow/bloodhound">the repository</a>.</p>
+  </header>
+
+  <div class="toolbar">
+    <label style="font-size:13px;color:var(--muted)">Program</label>
+    <select id="sample" aria-label="sample program">
+      <option value="sum_loop">sum_loop (a counting loop)</option>
+      <option value="factorial">factorial (recursion + call stack)</option>
+      <option value="memory">memory (linear memory)</option>
+    </select>
+    <span class="spacer"></span>
+    <button id="reset">Reset</button>
+    <button id="back">&#9664; Back</button>
+    <button id="stepi">Step</button>
+    <button id="into">Step into</button>
+    <button id="over" class="primary">Next (over)</button>
+    <button id="out">Step out</button>
+    <button id="cont" class="primary">Continue &#9654;</button>
+    <span class="spacer"></span>
+    <span class="stepbadge" id="stepbadge">step 0</span>
+  </div>
+
+  <div class="timeline">
+    <label><span>Execution timeline (drag to travel through time)</span><span id="tl-label">0 / 0</span></label>
+    <input type="range" id="scrubber" min="0" max="0" value="0">
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h2>Source <span style="text-transform:none;font-weight:400">(click a line to toggle a breakpoint)</span></h2>
+        <div class="code" id="source"></div>
+      </div>
+      <div class="card">
+        <h2>Call stack</h2>
+        <div id="callstack"></div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h2>Value stack</h2>
+        <div class="stack-view" id="stack"></div>
+      </div>
+      <div class="card">
+        <h2>Locals (current frame)</h2>
+        <div class="rows" id="locals"></div>
+      </div>
+      <div class="card">
+        <h2>Globals</h2>
+        <div class="watchbar">
+          <span style="font-size:13px;color:var(--muted)">watch global #</span>
+          <input type="number" id="watchidx" min="0" value="0">
+          <button id="watchbtn">Toggle watch</button>
+        </div>
+        <div class="rows" id="globals"></div>
+        <div id="watchnote" style="font-size:13px;color:var(--muted);margin-top:8px"></div>
+      </div>
+      <div class="card">
+        <h2>Linear memory</h2>
+        <div class="mem-grid" id="memory"></div>
+      </div>
+      <div class="card">
+        <h2>Output</h2>
+        <div class="out" id="output"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card howto">
+    <h2>How to use this playground</h2>
+    <div class="tourbox" id="tour">Guided tour: loading...</div>
+    <h3>The controls</h3>
+    <ul>
+      <li><b>Continue &#9654;</b> runs forward until the next breakpoint, or to the end.</li>
+      <li><b>Next (over)</b> advances to the next source line in the current function. If the line calls a function, the whole call runs and you stop after it returns.</li>
+      <li><b>Step into</b> advances to the next source line, descending into any function that gets called.</li>
+      <li><b>Step out</b> runs until the current function returns, landing in the caller.</li>
+      <li><b>Step</b> executes exactly one VM instruction.</li>
+      <li><b>&#9664; Back</b> is the reverse step. It moves one instruction backward in time and restores the exact earlier state.</li>
+      <li>The <b>timeline scrubber</b> jumps to any executed step instantly. Drag it left to travel into the past and right to return.</li>
+    </ul>
+    <h3>Reading the views</h3>
+    <ul>
+      <li>The highlighted <b>source line</b> is the line about to execute. The <b>step counter</b> (top right) shows how far into the run you are.</li>
+      <li>The <b>call stack</b> lists active frames, innermost last, with each frame's locals.</li>
+      <li>The <b>value stack</b>, <b>locals</b>, <b>globals</b>, and <b>memory</b> show live state. Any cell that changed on the current step is highlighted green, so time travel is legible: step back and the green shows what un-happened.</li>
+      <li>Pick a global and press <b>Toggle watch</b> to mark it with an eye. When a watched value changes, the panel reports the step and the old and new values.</li>
+    </ul>
+    <h3>A short guided tour</h3>
+    <ol>
+      <li>Leave <code>sum_loop</code> selected. Click the source line <code>sum += i</code> to set a breakpoint (its gutter turns red).</li>
+      <li>Press <b>Continue</b> a few times and watch <code>global[0]</code> climb 1, 3, 6, 10, 15 as the loop runs.</li>
+      <li>Set the watch index to <code>0</code> and press <b>Toggle watch</b>. Continue once more and read the reported old to new change.</li>
+      <li>Now press <b>&#9664; Back</b> several times. The sum counts back down. The print in the output un-happens. That is reverse execution.</li>
+      <li>Drag the <b>timeline</b> to the far left, then to the far right, to leap across the whole run.</li>
+      <li>Switch to <code>factorial</code> and use <b>Continue</b> to a breakpoint inside <code>recurse</code>, then read the deep <b>call stack</b>.</li>
+    </ol>
+  </div>
+
+  <footer>
+    Bloodhound &middot; <a href="https://github.com/pavanchow/bloodhound">github.com/pavanchow/bloodhound</a>
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Sample programs (identical assembly to the Rust crate's samples).
+// ---------------------------------------------------------------------------
+const SAMPLES = {
+  sum_loop: `; sum of 1..5 into global 0
+.globals 2
+main:
+  push 0
+  storeg 0       ; sum = 0
+  push 1
+  storeg 1       ; i = 1
+loop:
+  loadg 1
+  push 5
+  le
+  jz done        ; while i <= 5
+  loadg 0
+  loadg 1
+  add
+  storeg 0       ; sum += i
+  loadg 1
+  push 1
+  add
+  storeg 1       ; i += 1
+  jmp loop
+done:
+  loadg 0
+  print
+  halt`,
+  factorial: `; recursive factorial of 5
+.globals 4
+.memory 16
+main:
+  push 5
+  call fact 1 2
+  storeg 0
+  loadg 0
+  print
+  halt
+fact:            ; local 0 = n
+  load 0
+  push 1
+  le             ; n <= 1 ?
+  jz recurse
+  push 1
+  ret
+recurse:
+  load 0         ; n
+  load 0
+  push 1
+  sub            ; n - 1
+  call fact 1 2
+  mul            ; n * fact(n - 1)
+  ret`,
+  memory: `; store and reload a value in linear memory
+.globals 1
+.memory 8
+main:
+  push 4         ; address
+  push 77        ; value
+  storemem       ; mem[4] = 77
+  push 4
+  loadmem
+  print
+  halt`,
+};
+
+// ---------------------------------------------------------------------------
+// Assembler: a direct port of src/asm.rs.
+// ---------------------------------------------------------------------------
+function stripComment(line) {
+  const i = line.indexOf(";");
+  return i === -1 ? line : line.slice(0, i);
+}
+
+function assemble(src) {
+  const source = src.split("\n");
+  let globals = 16, memory = 64;
+  const labels = {};
+  let count = 0;
+
+  // Pass 1: resolve labels.
+  for (const raw of source) {
+    const c = stripComment(raw).trim();
+    if (!c) continue;
+    if (c.endsWith(":")) { labels[c.slice(0, -1).trim()] = count; continue; }
+    if (c.startsWith(".")) {
+      const [name, val] = c.slice(1).split(/\s+/);
+      if (name === "globals") globals = parseInt(val, 10);
+      else if (name === "memory") memory = parseInt(val, 10);
+      continue;
+    }
+    count++;
+  }
+
+  // Pass 2: encode, tracking pending labels for the code-address name table.
+  const code = [], lineOf = [], labelAt = [];
+  let pending = null;
+  for (let i = 0; i < source.length; i++) {
+    const raw = source[i];
+    const c = stripComment(raw).trim();
+    if (!c) continue;
+    if (c.endsWith(":")) { pending = c.slice(0, -1).trim(); continue; }
+    if (c.startsWith(".")) continue;
+    const parts = c.split(/\s+/);
+    const m = parts[0];
+    const arg = (k) => parts[k + 1];
+    const addr = (k) => (labels[arg(k)] !== undefined ? labels[arg(k)] : parseInt(arg(k), 10));
+    let op;
+    switch (m) {
+      case "push": op = { op: "push", a: parseInt(arg(0), 10) }; break;
+      case "pop": op = { op: "pop" }; break;
+      case "dup": op = { op: "dup" }; break;
+      case "add": case "sub": case "mul": case "div": case "mod":
+      case "neg": case "lt": case "gt": case "le": case "ge":
+      case "eq": case "ne": case "loadmem": case "storemem":
+      case "ret": case "print": case "halt":
+        op = { op: m }; break;
+      case "load": op = { op: "load", a: parseInt(arg(0), 10) }; break;
+      case "store": op = { op: "store", a: parseInt(arg(0), 10) }; break;
+      case "loadg": op = { op: "loadg", a: parseInt(arg(0), 10) }; break;
+      case "storeg": op = { op: "storeg", a: parseInt(arg(0), 10) }; break;
+      case "jmp": op = { op: "jmp", a: addr(0) }; break;
+      case "jz": op = { op: "jz", a: addr(0) }; break;
+      case "jnz": op = { op: "jnz", a: addr(0) }; break;
+      case "call": op = { op: "call", a: addr(0), n: parseInt(arg(1), 10), l: parseInt(arg(2), 10) }; break;
+      default: throw new Error("unknown mnemonic " + m + " on line " + (i + 1));
+    }
+    code.push(op);
+    lineOf.push(i + 1);
+    labelAt.push(pending);
+    pending = null;
+  }
+  return { code, lineOf, source, labels: labelAt, globals, memory };
+}
+
+// ---------------------------------------------------------------------------
+// The VM: a direct port of src/vm.rs step semantics.
+// ---------------------------------------------------------------------------
+function newVm(p) {
+  return {
+    pc: 0, halted: false, stack: [],
+    globals: new Array(Math.max(1, p.globals)).fill(0),
+    memory: new Array(Math.max(1, p.memory)).fill(0),
+    frames: [{ func: "main", return_pc: -1, locals: new Array(8).fill(0), stack_base: 0, call_line: 0 }],
+    output: [],
+  };
+}
+
+function memIndex(vm, addr) {
+  const n = vm.memory.length;
+  return n === 0 ? 0 : ((addr % n) + n) % n;
+}
+
+// Execute one instruction in place. Returns true if it progressed.
+function step(vm, p) {
+  if (vm.halted) return false;
+  const ins = p.code[vm.pc];
+  if (!ins) return false;
+  const s = vm.stack;
+  const frame = vm.frames[vm.frames.length - 1];
+  let next = vm.pc + 1;
+  const pop = () => (s.length ? s.pop() : 0);
+  const bin = (f) => { const b = pop(), a = pop(); s.push(f(a, b)); };
+  const cmp = (f) => { const b = pop(), a = pop(); s.push(f(a, b) ? 1 : 0); };
+  switch (ins.op) {
+    case "push": s.push(ins.a); break;
+    case "pop": pop(); break;
+    case "dup": { const v = pop(); s.push(v); s.push(v); break; }
+    case "add": bin((a, b) => a + b); break;
+    case "sub": bin((a, b) => a - b); break;
+    case "mul": bin((a, b) => a * b); break;
+    case "div": bin((a, b) => (b === 0 ? 0 : Math.trunc(a / b))); break;
+    case "mod": bin((a, b) => (b === 0 ? 0 : a % b)); break;
+    case "neg": s.push(-pop()); break;
+    case "lt": cmp((a, b) => a < b); break;
+    case "gt": cmp((a, b) => a > b); break;
+    case "le": cmp((a, b) => a <= b); break;
+    case "ge": cmp((a, b) => a >= b); break;
+    case "eq": cmp((a, b) => a === b); break;
+    case "ne": cmp((a, b) => a !== b); break;
+    case "load": s.push(frame.locals[ins.a] || 0); break;
+    case "store": { const v = pop(); if (ins.a < frame.locals.length) frame.locals[ins.a] = v; break; }
+    case "loadg": s.push(vm.globals[ins.a] || 0); break;
+    case "storeg": { const v = pop(); if (ins.a < vm.globals.length) vm.globals[ins.a] = v; break; }
+    case "loadmem": { const addr = pop(); s.push(vm.memory[memIndex(vm, addr)] || 0); break; }
+    case "storemem": { const v = pop(); const addr = pop(); vm.memory[memIndex(vm, addr)] = v; break; }
+    case "jmp": next = ins.a; break;
+    case "jz": if (pop() === 0) next = ins.a; break;
+    case "jnz": if (pop() !== 0) next = ins.a; break;
+    case "call": {
+      const nloc = Math.max(ins.l, ins.n);
+      const locals = new Array(nloc).fill(0);
+      for (let k = ins.n - 1; k >= 0; k--) locals[k] = pop();
+      const name = p.labels[ins.a] || ("fn@" + ins.a);
+      vm.frames.push({ func: name, return_pc: vm.pc + 1, locals, stack_base: s.length, call_line: p.lineOf[vm.pc] || 0 });
+      next = ins.a;
+      break;
+    }
+    case "ret": {
+      const rv = pop();
+      if (vm.frames.length > 1) { const f = vm.frames.pop(); next = f.return_pc; s.push(rv); }
+      else { s.push(rv); vm.halted = true; next = vm.pc; }
+      break;
+    }
+    case "print": vm.output.push(String(pop())); break;
+    case "halt": vm.halted = true; next = vm.pc; break;
+  }
+  vm.pc = next;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Time travel by snapshots: run once, deep-clone the state after every step.
+// Every motion command is then index math over this history, and stepping back
+// or scrubbing simply restores an earlier snapshot. (The Rust engine reaches
+// the same result with a per-instruction undo journal.)
+// ---------------------------------------------------------------------------
+const CAP = 200000;
+function buildHistory(p) {
+  const vm = newVm(p);
+  const hist = [];
+  while (true) {
+    hist.push(structuredClone({
+      pc: vm.pc, halted: vm.halted, stack: vm.stack, globals: vm.globals,
+      memory: vm.memory, frames: vm.frames, output: vm.output,
+    }));
+    if (vm.halted) break;
+    if (!step(vm, p)) break;
+    if (hist.length > CAP) break;
+  }
+  return hist;
+}
+
+function lineAt(p, pc) { return p.lineOf[pc] || 0; }
+
+// Motion semantics over the history (mirrors src/debugger.rs).
+function nextBreakpoint(hist, p, cur, bpAddrs) {
+  for (let j = cur + 1; j < hist.length; j++) {
+    if (!hist[j].halted && bpAddrs.has(hist[j].pc)) return j;
+  }
+  return hist.length - 1;
+}
+function nextOver(hist, p, cur) {
+  const line = lineAt(p, hist[cur].pc), depth = hist[cur].frames.length;
+  for (let j = cur + 1; j < hist.length; j++) {
+    if (hist[j].halted) return j;
+    if (hist[j].frames.length <= depth && lineAt(p, hist[j].pc) !== line) return j;
+  }
+  return hist.length - 1;
+}
+function nextInto(hist, p, cur) {
+  const line = lineAt(p, hist[cur].pc);
+  for (let j = cur + 1; j < hist.length; j++) {
+    if (hist[j].halted) return j;
+    if (lineAt(p, hist[j].pc) !== line) return j;
+  }
+  return hist.length - 1;
+}
+function nextOut(hist, p, cur) {
+  const depth = hist[cur].frames.length;
+  for (let j = cur + 1; j < hist.length; j++) {
+    if (hist[j].halted) return j;
+    if (hist[j].frames.length < depth) return j;
+  }
+  return hist.length - 1;
+}
+
+// ---------------------------------------------------------------------------
+// UI state and rendering.
+// ---------------------------------------------------------------------------
+let program, history, cur = 0;
+let breakpoints = new Set();   // source line numbers
+let watch = new Set();         // global indices
+
+const $ = (id) => document.getElementById(id);
+
+function bpAddrSet() {
+  const set = new Set();
+  for (const line of breakpoints) {
+    const addr = program.lineOf.indexOf(line);
+    if (addr !== -1) set.add(addr);
+  }
+  return set;
+}
+
+function load(name) {
+  program = assemble(SAMPLES[name]);
+  history = buildHistory(program);
+  cur = 0;
+  breakpoints = new Set();
+  watch = new Set();
+  $("watchnote").textContent = "";
+  $("scrubber").max = String(history.length - 1);
+  render();
+}
+
+function prevState() { return cur > 0 ? history[cur - 1] : null; }
+
+function render() {
+  const st = history[cur];
+  const prev = prevState();
+  $("stepbadge").textContent = "step " + cur;
+  $("scrubber").value = String(cur);
+  $("tl-label").textContent = cur + " / " + (history.length - 1);
+  $("back").disabled = cur === 0;
+  $("cont").disabled = st.halted;
+  $("over").disabled = st.halted;
+  $("into").disabled = st.halted;
+  $("out").disabled = st.halted;
+  $("stepi").disabled = st.halted;
+
+  renderSource(st);
+  renderStack(st, prev);
+  renderLocals(st, prev);
+  renderGlobals(st, prev);
+  renderMemory(st, prev);
+  renderCallstack(st);
+  $("output").textContent = st.output.length ? st.output.join("  ") : "(no output yet)";
+  renderWatch(st, prev);
+}
+
+function renderSource(st) {
+  const curLine = lineAt(program, st.pc);
+  const el = $("source");
+  el.innerHTML = "";
+  program.source.forEach((text, i) => {
+    const ln = i + 1;
+    const hasBp = breakpoints.has(ln);
+    const div = document.createElement("div");
+    div.className = "srcline" + (ln === curLine && !st.halted ? " current" : "") + (hasBp ? " hasbp" : "");
+    div.innerHTML =
+      '<span class="bpdot">' + (hasBp ? "&#9679;" : "") + '</span>' +
+      '<span class="gutter">' + ln + '</span>' +
+      '<span class="text"></span>';
+    div.querySelector(".text").textContent = text || " ";
+    div.onclick = () => toggleBreak(ln);
+    el.appendChild(div);
+  });
+}
+
+function toggleBreak(line) {
+  if (program.lineOf.indexOf(line) === -1) return; // no instruction on this line
+  if (breakpoints.has(line)) breakpoints.delete(line); else breakpoints.add(line);
+  render();
+}
+
+function renderStack(st, prev) {
+  const el = $("stack");
+  el.innerHTML = "";
+  if (!st.stack.length) { el.innerHTML = '<div class="empty">empty</div>'; return; }
+  st.stack.forEach((v, i) => {
+    const changed = !prev || prev.stack[i] !== v || prev.stack.length !== st.stack.length;
+    const c = document.createElement("div");
+    c.className = "stack-cell" + (changed && i === st.stack.length - 1 ? " changed" : "");
+    c.innerHTML = '<span class="idx">' + i + '</span><span>' + v + '</span>';
+    el.appendChild(c);
+  });
+}
+
+function renderLocals(st, prev) {
+  const el = $("locals");
+  el.innerHTML = "";
+  const f = st.frames[st.frames.length - 1];
+  const pf = prev ? prev.frames[prev.frames.length - 1] : null;
+  const sameFrame = pf && prev.frames.length === st.frames.length;
+  f.locals.forEach((v, i) => {
+    const changed = sameFrame && pf.locals[i] !== v;
+    addRow(el, "local[" + i + "]", v, changed, false);
+  });
+}
+
+function renderGlobals(st, prev) {
+  const el = $("globals");
+  el.innerHTML = "";
+  st.globals.forEach((v, i) => {
+    const changed = prev && prev.globals[i] !== v;
+    addRow(el, "global[" + i + "]", v, changed, watch.has(i));
+  });
+}
+
+function addRow(el, k, v, changed, watched) {
+  const row = document.createElement("div");
+  row.className = "row" + (changed ? " changed" : "") + (watched ? " watched" : "");
+  row.innerHTML = '<span class="k"></span><span class="v">' + v + '</span>';
+  row.querySelector(".k").textContent = k;
+  el.appendChild(row);
+}
+
+function renderMemory(st, prev) {
+  const el = $("memory");
+  el.innerHTML = "";
+  st.memory.forEach((v, i) => {
+    const changed = prev && prev.memory[i] !== v;
+    const c = document.createElement("div");
+    c.className = "mem-cell" + (v !== 0 ? " nonzero" : "") + (changed ? " changed" : "");
+    c.innerHTML = '<span class="a">' + i + '</span>' + v;
+    el.appendChild(c);
+  });
+}
+
+function renderCallstack(st) {
+  const el = $("callstack");
+  el.innerHTML = "";
+  st.frames.forEach((f, i) => {
+    const div = document.createElement("div");
+    div.className = "frame" + (i === st.frames.length - 1 ? " top" : "");
+    const rp = f.return_pc === -1 ? "-" : f.return_pc;
+    div.innerHTML = '<span class="fname">#' + i + " " + f.func + '</span>' +
+      " &middot; return pc " + rp + " &middot; locals [" + f.locals.join(", ") + "]";
+    el.appendChild(div);
+  });
+}
+
+function renderWatch(st, prev) {
+  if (!watch.size) { return; }
+  const notes = [];
+  for (const i of watch) {
+    const now = st.globals[i];
+    if (prev && prev.globals[i] !== now) {
+      notes.push("global[" + i + "] changed at step " + cur + ": " + prev.globals[i] + " -> " + now);
+    } else {
+      notes.push("global[" + i + "] = " + now);
+    }
+  }
+  $("watchnote").textContent = notes.join("   |   ");
+}
+
+// ---------------------------------------------------------------------------
+// Controls.
+// ---------------------------------------------------------------------------
+function goto(n) { cur = Math.max(0, Math.min(history.length - 1, n)); render(); }
+
+$("sample").onchange = (e) => load(e.target.value);
+$("reset").onclick = () => goto(0);
+$("back").onclick = () => goto(cur - 1);
+$("stepi").onclick = () => goto(cur + 1);
+$("into").onclick = () => goto(nextInto(history, program, cur));
+$("over").onclick = () => goto(nextOver(history, program, cur));
+$("out").onclick = () => goto(nextOut(history, program, cur));
+$("cont").onclick = () => goto(nextBreakpoint(history, program, cur, bpAddrSet()));
+$("scrubber").oninput = (e) => goto(parseInt(e.target.value, 10));
+$("watchbtn").onclick = () => {
+  const i = parseInt($("watchidx").value, 10);
+  if (Number.isNaN(i)) return;
+  if (watch.has(i)) watch.delete(i); else watch.add(i);
+  if (!watch.size) $("watchnote").textContent = "";
+  render();
+};
+
+$("tour").textContent =
+  "Try this: click the line \"sum += i\" to set a breakpoint, press Continue a few times to watch global[0] grow, then press Back to run the sum in reverse. Drag the timeline to leap anywhere.";
+
+load("sum_loop");
+</script>
 </body>
 </html>
