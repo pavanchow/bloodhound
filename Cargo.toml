@@ -1,0 +1,18 @@
+[package]
+name = "bloodhound"
+version = "0.1.0"
+edition = "2021"
+description = "A portable time-travel debugger for a self-contained stack VM"
+license = "MIT"
+repository = "https://github.com/pavanchow/bloodhound"
+
+[[bin]]
+name = "bloodhound"
+path = "src/bin/bloodhound.rs"
+
+[lib]
+name = "bloodhound"
+path = "src/lib.rs"
+
+[profile.release]
+opt-level = 3
