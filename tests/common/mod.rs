@@ -68,21 +68,25 @@ impl Rng {
     }
 }
 
-/// Generate a well-formed, always-terminating program that exercises arithmetic,
-/// locals, globals, memory, a forward branch, nested calls (depth 3), and prints.
+/// Generate a well-formed, always-terminating program that exercises the full
+/// arithmetic set including division and remainder by zero, negation, locals,
+/// globals, memory writes and wrapped loads through negative addresses, a
+/// conditional branch in both polarities, nested calls (depth 3), and prints.
 pub fn gen_program(seed: u64) -> Program {
     let mut r = Rng::new(seed);
-    let ops = ["add", "sub", "mul"];
+    let ops = ["add", "sub", "mul", "div", "mod", "neg"];
     let cmps = ["lt", "gt", "le", "ge", "eq", "ne"];
+    let brs = ["jz", "jnz"];
     let a = r.small();
     let b = r.small();
     let c = r.small();
     let d = r.small();
-    let ma = r.range(8);
+    let ma = r.range(17) as i64 - 9;
     let mv = r.small();
     let op1 = ops[r.range(ops.len())];
     let op2 = ops[r.range(ops.len())];
     let cmp = cmps[r.range(cmps.len())];
+    let br = brs[r.range(brs.len())];
 
     let src = format!(
         "\
@@ -92,13 +96,16 @@ main:
   push {mv}
   push {ma}
   storemem
+  push {ma}
+  loadmem
+  pop
   push {a}
   call h1 1 2
   storeg 0
   loadg 0
   push {d}
   {cmp}
-  jz skip
+  {br} skip
   push 7
   storeg 2
 skip:
