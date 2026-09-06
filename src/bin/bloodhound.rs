@@ -11,7 +11,7 @@
 
 use bloodhound::asm::assemble;
 use bloodhound::debugger::{Debugger, StopReason, WatchLoc};
-use bloodhound::expr::{EvalCtx, Expr};
+use bloodhound::expr::Expr;
 use bloodhound::samples;
 use std::io::{self, BufRead, Write};
 

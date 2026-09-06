@@ -707,12 +707,12 @@ fn assembler_negative_battery() {
 
 use bloodhound::expr::{EvalCtx, Expr, ExprError};
 
+/// A snapshot predicate written in plain Rust, used as the independent
+/// reference for expression conditions.
+type Pred = fn(&Snapshot) -> bool;
+
 fn top_of(s: &Snapshot) -> i64 {
     s.stack.last().copied().unwrap_or(0)
-}
-
-fn ctx_of(s: &Snapshot) -> EvalCtx<'_> {
-    EvalCtx::of_snapshot(s)
 }
 
 /// Reference conditional breakpoint stops computed straight from the trace:
@@ -748,7 +748,7 @@ fn collect_cont_stops(d: &mut Debugger, addr: usize) -> Vec<usize> {
 #[test]
 fn gate_conditional_breakpoints_fuzz() {
     // (text, independent predicate) pairs evaluated against every arrival.
-    let cases: [(&str, fn(&Snapshot) -> bool); 3] = [
+    let cases: [(&str, Pred); 3] = [
         ("globals[0] > 3", |s| s.globals.first().copied().unwrap_or(0) > 3),
         ("memory[0] % 2 == 1", |s| {
             let v = s.memory.first().copied().unwrap_or(0);
@@ -817,7 +817,7 @@ fn gate_watch_if_fuzz() {
         hits
     }
 
-    let cases: [(&str, fn(&Snapshot) -> bool); 2] = [
+    let cases: [(&str, Pred); 2] = [
         ("globals[0] % 2 == 0", |s| {
             let v = s.globals.first().copied().unwrap_or(0);
             v.wrapping_rem(2) == 0
