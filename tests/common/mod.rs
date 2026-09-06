@@ -81,6 +81,8 @@ pub fn gen_program(seed: u64) -> Program {
     let b = r.small();
     let c = r.small();
     let d = r.small();
+    // The modulo result is 0..=16, so the cast to i64 is exact.
+    #[allow(clippy::cast_possible_wrap)]
     let ma = r.range(17) as i64 - 9;
     let mv = r.small();
     let op1 = ops[r.range(ops.len())];
