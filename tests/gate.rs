@@ -10,135 +10,12 @@
 
 use bloodhound::asm::assemble;
 use bloodhound::debugger::{Debugger, StopReason, WatchHit, WatchLoc};
+use bloodhound::expr::{EvalCtx, Expr, ExprError};
 use bloodhound::samples;
 use bloodhound::vm::{Op, Program, Snapshot, Vm};
 
-/// One entry of the ground-truth trace.
-struct Step {
-    pc: usize,
-    line: u32,
-    depth: usize,
-    halted: bool,
-    snap: Snapshot,
-}
-
-const TRACE_CAP: usize = 2_000_000;
-
-/// Build the ground-truth forward trace: index i is the state after i steps.
-fn ground_truth(p: &Program) -> Vec<Step> {
-    let mut vm = Vm::new(p);
-    let mut out = Vec::new();
-    loop {
-        let snap = vm.snapshot();
-        out.push(Step {
-            pc: snap.pc,
-            line: p.line_at(snap.pc),
-            depth: snap.frames.len(),
-            halted: snap.halted,
-            snap,
-        });
-        if vm.halted {
-            break;
-        }
-        if vm.step().is_none() {
-            break;
-        }
-        if out.len() > TRACE_CAP {
-            break;
-        }
-    }
-    out
-}
-
-fn fuzz_count() -> u64 {
-    std::env::var("BLOODHOUND_FUZZ_OPS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(48)
-}
-
-struct Rng(u64);
-impl Rng {
-    fn new(seed: u64) -> Self {
-        Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1))
-    }
-    fn next(&mut self) -> u64 {
-        // xorshift64star
-        let mut x = self.0;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        self.0 = x;
-        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
-    }
-    fn range(&mut self, n: usize) -> usize {
-        (self.next() % n as u64) as usize
-    }
-    fn small(&mut self) -> i64 {
-        (self.next() % 19) as i64 - 9
-    }
-}
-
-/// Generate a well-formed, always-terminating program that exercises arithmetic,
-/// locals, globals, memory, a forward branch, nested calls (depth 3), and prints.
-fn gen_program(seed: u64) -> Program {
-    let mut r = Rng::new(seed);
-    let ops = ["add", "sub", "mul"];
-    let cmps = ["lt", "gt", "le", "ge", "eq", "ne"];
-    let a = r.small();
-    let b = r.small();
-    let c = r.small();
-    let d = r.small();
-    let ma = r.range(8);
-    let mv = r.small();
-    let op1 = ops[r.range(ops.len())];
-    let op2 = ops[r.range(ops.len())];
-    let cmp = cmps[r.range(cmps.len())];
-
-    let src = format!(
-        "\
-.globals 4
-.memory 8
-main:
-  push {mv}
-  push {ma}
-  storemem
-  push {a}
-  call h1 1 2
-  storeg 0
-  loadg 0
-  push {d}
-  {cmp}
-  jz skip
-  push 7
-  storeg 2
-skip:
-  loadg 0
-  print
-  loadg 2
-  print
-  halt
-h1:
-  load 0
-  push {b}
-  {op1}
-  call h2 1 2
-  load 0
-  {op2}
-  storeg 1
-  loadg 1
-  ret
-h2:
-  load 0
-  push {c}
-  mul
-  storeg 3
-  loadg 3
-  ret
-"
-    );
-    assemble(&src).unwrap_or_else(|e| panic!("gen seed {seed}: {e}"))
-}
+mod common;
+use common::*;
 
 // --- Gate 1: time-travel reversibility ------------------------------------
 
@@ -196,15 +73,6 @@ fn gate_reversibility_samples() {
 
 // --- Gate 2: breakpoint correctness ---------------------------------------
 
-fn expected_breakpoint_stops(trace: &[Step], addr: usize) -> Vec<usize> {
-    // A breakpoint stops before executing an instruction, so a halted terminal
-    // state (which is about to execute nothing) is never a stop, even if its pc
-    // still equals the breakpoint address.
-    (1..trace.len())
-        .filter(|&i| trace[i].pc == addr && !trace[i].halted)
-        .collect()
-}
-
 fn check_breakpoint(p: &Program, addr: usize, note: &str) {
     let trace = ground_truth(p);
     let expected = expected_breakpoint_stops(&trace, addr);
@@ -256,36 +124,6 @@ fn gate_breakpoint_recurring_samples() {
 
 // --- Gate 3: watchpoint correctness ---------------------------------------
 
-fn watch_val(s: &Snapshot, loc: WatchLoc) -> i64 {
-    match loc {
-        WatchLoc::Global(i) => s.globals.get(i).copied().unwrap_or(0),
-        WatchLoc::Mem(i) => s.memory.get(i).copied().unwrap_or(0),
-        WatchLoc::Local(i) => s
-            .frames
-            .last()
-            .and_then(|f| f.locals.get(i))
-            .copied()
-            .unwrap_or(0),
-    }
-}
-
-/// Reference watch hits with the same first-match-per-step semantics the
-/// debugger uses in `cont`.
-fn expected_watch_hits(trace: &[Step], watches: &[WatchLoc]) -> Vec<WatchHit> {
-    let mut hits = Vec::new();
-    for i in 1..trace.len() {
-        for &loc in watches {
-            let old = watch_val(&trace[i - 1].snap, loc);
-            let new = watch_val(&trace[i].snap, loc);
-            if old != new {
-                hits.push(WatchHit { loc, old, new, step: i });
-                break;
-            }
-        }
-    }
-    hits
-}
-
 fn check_watchpoints(p: &Program, watches: &[WatchLoc], note: &str) {
     let trace = ground_truth(p);
     let expected = expected_watch_hits(&trace, watches);
@@ -322,37 +160,6 @@ fn gate_watchpoint_samples() {
 }
 
 // --- Gate 4: step-over / step-out / step-into semantics --------------------
-
-fn expected_step_over(trace: &[Step], s: usize) -> usize {
-    let start_line = trace[s].line;
-    let start_depth = trace[s].depth;
-    for (j, step) in trace.iter().enumerate().skip(s + 1) {
-        if step.halted || (step.depth <= start_depth && step.line != start_line) {
-            return j;
-        }
-    }
-    trace.len() - 1
-}
-
-fn expected_step_out(trace: &[Step], s: usize) -> usize {
-    let start_depth = trace[s].depth;
-    for (j, step) in trace.iter().enumerate().skip(s + 1) {
-        if step.halted || step.depth < start_depth {
-            return j;
-        }
-    }
-    trace.len() - 1
-}
-
-fn expected_step_into(trace: &[Step], s: usize) -> usize {
-    let start_line = trace[s].line;
-    for (j, step) in trace.iter().enumerate().skip(s + 1) {
-        if step.halted || step.line != start_line {
-            return j;
-        }
-    }
-    trace.len() - 1
-}
 
 fn check_stepping(p: &Program, note: &str) {
     let trace = ground_truth(p);
@@ -705,8 +512,6 @@ fn assembler_negative_battery() {
 
 // --- Gate 6: conditional breakpoints and expression watches -----------------
 
-use bloodhound::expr::{EvalCtx, Expr, ExprError};
-
 /// A snapshot predicate written in plain Rust, used as the independent
 /// reference for expression conditions.
 type Pred = fn(&Snapshot) -> bool;
@@ -727,22 +532,6 @@ fn expected_cond_breakpoint_stops(
     (1..trace.len())
         .filter(|&i| trace[i].pc == addr && !trace[i].halted && pred(&trace[i].snap))
         .collect()
-}
-
-fn collect_cont_stops(d: &mut Debugger, addr: usize) -> Vec<usize> {
-    let mut stops = Vec::new();
-    loop {
-        match d.cont() {
-            StopReason::Breakpoint(a) => {
-                assert_eq!(a, addr);
-                stops.push(d.step_count());
-            }
-            StopReason::Halted => break,
-            StopReason::Limit => panic!("hit step limit"),
-            other => panic!("unexpected stop {other:?}"),
-        }
-    }
-    stops
 }
 
 #[test]
