@@ -276,13 +276,18 @@ fn stress_goto_scrub() {
         // Hop to the current step: a no-op that must not move anything.
         d.goto(d.step_count());
         assert_eq!(d.snapshot(), *snap);
-        // Random forward/back drift around the target, then re-scrub.
-        let k = r.range(64);
+        // Random forward/back drift around the target, then re-scrub. The
+        // drift is bounded by the room left before the terminal step: at the
+        // terminal anchor the machine is halted and must refuse to move.
+        let k = r.range(64).min(total - i);
         for _ in 0..k {
-            assert!(d.forward());
+            assert!(d.forward(), "drift forward from anchor {i}");
+        }
+        if i + k == total {
+            assert!(!d.forward(), "no forward past the terminal step");
         }
         for _ in 0..k {
-            assert!(d.backward());
+            assert!(d.backward(), "drift backward from anchor {i}");
         }
         assert_eq!(d.snapshot(), *index[&i], "scrub {j}: drift restore at {i}");
     }
