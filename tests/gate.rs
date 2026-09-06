@@ -407,6 +407,94 @@ fn gate_stepping_samples() {
     }
 }
 
+// --- Gate 0: machine and assembler hardening --------------------------------
+
+#[test]
+fn running_off_the_end_halts_cleanly() {
+    // A program with no halt and no ret falls off the end of the code. The
+    // machine must end in a halted terminal state, not a stuck non-halted
+    // state whose pc is out of range and which no longer steps.
+    let p = assemble("  push 1\n  push 2\n").unwrap();
+    let mut vm = Vm::new(&p);
+    while vm.step().is_some() {}
+    let snap = vm.snapshot();
+    assert!(snap.halted, "terminal state must be halted, got {snap:?}");
+    assert!(vm.step().is_none(), "no further progress is possible");
+
+    // The same must hold when a jump or call leaves the code outright. The
+    // assembler no longer produces such targets, but the public API allows
+    // hand-built programs, so the machine itself must stay safe.
+    let one = |ops: Vec<Op>| Program {
+        line_of: vec![1; ops.len()],
+        source: vec!["<test>".to_string()],
+        labels: vec![None; ops.len()],
+        globals: 4,
+        memory: 8,
+        code: ops,
+    };
+    for ops in [
+        vec![Op::Push(1), Op::Jmp(9)],
+        vec![Op::Push(1), Op::Push(0), Op::Jz(9)],
+        vec![Op::Push(1), Op::Push(0), Op::Jnz(9)],
+        vec![Op::Push(1), Op::Call(9, 0, 1)],
+    ] {
+        let p = one(ops);
+        let mut vm = Vm::new(&p);
+        while vm.step().is_some() {}
+        assert!(vm.snapshot().halted, "op {:?} must end halted", p.code);
+    }
+
+    // Falling off the end must be reversible like any other step.
+    let p = assemble("  push 5\n").unwrap();
+    let mut vm = Vm::new(&p);
+    let u = vm.step().expect("one step");
+    assert!(vm.halted, "falling off the end must halt");
+    vm.undo(u);
+    assert!(!vm.halted);
+    assert_eq!(vm.pc, 0);
+    assert_eq!(vm.stack, vec![0; 0]);
+}
+
+#[test]
+fn absurd_data_sizes_are_rejected() {
+    // A directive sized to OOM the machine must be a clean assembly error.
+    let e = assemble(".memory 1000000000000\n  halt\n").unwrap_err();
+    assert!(e.message.contains("too large"), "got: {e}");
+    let e = assemble(".globals 99999999999\n  halt\n").unwrap_err();
+    assert!(e.message.contains("too large"), "got: {e}");
+    // In-range sizes still work.
+    let p = assemble(".memory 1048576\n  halt\n").unwrap();
+    assert_eq!(p.memory, 1_048_576);
+}
+
+#[test]
+fn duplicate_directives_are_rejected() {
+    assert!(assemble(".memory 8\n.memory 16\n  halt\n").is_err());
+    assert!(assemble(".globals 2\n.globals 3\n  halt\n").is_err());
+    // Same directive repeated is fine if it errors, distinct directives are fine.
+    assert!(assemble(".globals 2\n.memory 8\n  halt\n").is_ok());
+}
+
+#[test]
+fn out_of_range_branch_targets_are_rejected() {
+    // len == 2, so target 7 is malformed and must be a clean error.
+    assert!(assemble("  jmp 7\n  halt\n").is_err());
+    assert!(assemble("  jz 7\n  halt\n").is_err());
+    assert!(assemble("  jnz 7\n  halt\n").is_err());
+    assert!(assemble("  call 7 0 1\n  halt\n").is_err());
+    // One past the last instruction is a legal run-off-the-end exit.
+    let p = assemble("  jmp 2\n  halt\n").unwrap();
+    assert_eq!(p.code[0], Op::Jmp(2));
+}
+
+#[test]
+fn numeric_labels_are_rejected() {
+    // A label that parses as a number can never be targeted by name because
+    // numeric operands win, so defining one is a silent trap.
+    assert!(assemble("2:\n  halt\n").is_err());
+    assert!(assemble("999:\n  halt\n").is_err());
+}
+
 // --- a targeted step-over-across-nested-calls assertion --------------------
 
 #[test]

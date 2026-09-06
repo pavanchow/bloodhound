@@ -16,6 +16,11 @@
 use crate::vm::{Op, Program, DEFAULT_GLOBALS, DEFAULT_MEMORY};
 use std::collections::HashMap;
 
+/// The largest number of global or memory cells a directive may request. A
+/// bigger request would make the first `Vm::new` allocate gigabytes and abort
+/// the process, which no legitimate program wants.
+pub const MAX_DATA_CELLS: usize = 1 << 20;
+
 /// An assembly error tied to the 1-based source line that caused it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AsmError {
@@ -46,6 +51,8 @@ pub fn assemble(src: &str) -> Result<Program, AsmError> {
 
     let mut globals = DEFAULT_GLOBALS;
     let mut memory = DEFAULT_MEMORY;
+    let mut seen_globals = false;
+    let mut seen_memory = false;
 
     // Pass 1: resolve labels to instruction addresses and count instructions.
     let mut labels: HashMap<String, usize> = HashMap::new();
@@ -64,6 +71,12 @@ pub fn assemble(src: &str) -> Result<Program, AsmError> {
             if name.is_empty() {
                 return Err(err(lineno, "empty label"));
             }
+            if name.parse::<usize>().is_ok() {
+                return Err(err(
+                    lineno,
+                    format!("label `{name}` looks like an address and could never be targeted by name"),
+                ));
+            }
             if labels.contains_key(&name) {
                 return Err(err(lineno, format!("duplicate label `{name}`")));
             }
@@ -72,7 +85,7 @@ pub fn assemble(src: &str) -> Result<Program, AsmError> {
             continue;
         }
         if let Some(rest) = content.strip_prefix('.') {
-            apply_directive(rest, lineno, &mut globals, &mut memory)?;
+            apply_directive(rest, lineno, &mut globals, &mut memory, &mut seen_globals, &mut seen_memory)?;
             continue;
         }
         // An instruction line consumes any pending label.
@@ -90,7 +103,7 @@ pub fn assemble(src: &str) -> Result<Program, AsmError> {
         if content.is_empty() || content.ends_with(':') || content.starts_with('.') {
             continue;
         }
-        let op = parse_instr(content, lineno, &labels)?;
+        let op = parse_instr(content, lineno, &labels, instr_count)?;
         code.push(op);
         line_of.push(lineno);
     }
@@ -109,19 +122,56 @@ pub fn assemble(src: &str) -> Result<Program, AsmError> {
     })
 }
 
-fn apply_directive(rest: &str, lineno: u32, globals: &mut usize, memory: &mut usize) -> Result<(), AsmError> {
+fn apply_directive(
+    rest: &str,
+    lineno: u32,
+    globals: &mut usize,
+    memory: &mut usize,
+    seen_globals: &mut bool,
+    seen_memory: &mut bool,
+) -> Result<(), AsmError> {
     let mut it = rest.split_whitespace();
     let name = it.next().unwrap_or("");
     let val = it.next();
     match name {
-        "globals" => *globals = parse_usize(val, lineno, "globals")?,
-        "memory" => *memory = parse_usize(val, lineno, "memory")?,
+        "globals" => {
+            if *seen_globals {
+                return Err(err(lineno, "duplicate `.globals` directive"));
+            }
+            *globals = parse_data_size(val, lineno, "globals")?;
+            *seen_globals = true;
+        }
+        "memory" => {
+            if *seen_memory {
+                return Err(err(lineno, "duplicate `.memory` directive"));
+            }
+            *memory = parse_data_size(val, lineno, "memory")?;
+            *seen_memory = true;
+        }
         other => return Err(err(lineno, format!("unknown directive `.{other}`"))),
     }
     Ok(())
 }
 
-fn parse_instr(content: &str, lineno: u32, labels: &HashMap<String, usize>) -> Result<Op, AsmError> {
+/// Parse a `.globals` / `.memory` value, rejecting sizes that would make the
+/// machine impossible to allocate.
+fn parse_data_size(val: Option<&str>, lineno: u32, what: &str) -> Result<usize, AsmError> {
+    let n = parse_usize(val, lineno, what)?;
+    if n > MAX_DATA_CELLS {
+        return Err(err(
+            lineno,
+            format!(".{what} value {n} too large (max {MAX_DATA_CELLS})"),
+        ));
+    }
+    Ok(n)
+}
+
+fn parse_instr(
+    content: &str,
+    lineno: u32,
+    labels: &HashMap<String, usize>,
+    instr_count: usize,
+) -> Result<Op, AsmError> {
     let mut it = content.split_whitespace();
     let mnem = it.next().unwrap_or("");
     let args: Vec<&str> = it.collect();
@@ -148,11 +198,11 @@ fn parse_instr(content: &str, lineno: u32, labels: &HashMap<String, usize>) -> R
         "storeg" => Op::StoreG(uint_arg(&args, 0, lineno)?),
         "loadmem" => Op::LoadMem,
         "storemem" => Op::StoreMem,
-        "jmp" => Op::Jmp(addr_arg(&args, 0, lineno, labels)?),
-        "jz" => Op::Jz(addr_arg(&args, 0, lineno, labels)?),
-        "jnz" => Op::Jnz(addr_arg(&args, 0, lineno, labels)?),
+        "jmp" => Op::Jmp(addr_arg(&args, 0, lineno, labels, instr_count)?),
+        "jz" => Op::Jz(addr_arg(&args, 0, lineno, labels, instr_count)?),
+        "jnz" => Op::Jnz(addr_arg(&args, 0, lineno, labels, instr_count)?),
         "call" => {
-            let target = addr_arg(&args, 0, lineno, labels)?;
+            let target = addr_arg(&args, 0, lineno, labels, instr_count)?;
             let nargs = uint_arg(&args, 1, lineno)?;
             let nlocals = uint_arg(&args, 2, lineno)?;
             Op::Call(target, nargs, nlocals)
@@ -175,9 +225,25 @@ fn uint_arg(args: &[&str], i: usize, lineno: u32) -> Result<usize, AsmError> {
     s.parse::<usize>().map_err(|_| err(lineno, format!("invalid slot index `{s}`")))
 }
 
-fn addr_arg(args: &[&str], i: usize, lineno: u32, labels: &HashMap<String, usize>) -> Result<usize, AsmError> {
+/// Resolve a jump or call target: a numeric address or a label name. A numeric
+/// address must land inside the program (one past the last instruction is
+/// allowed as a run-off-the-end exit). Label targets are already validated by
+/// pass 1 resolution.
+fn addr_arg(
+    args: &[&str],
+    i: usize,
+    lineno: u32,
+    labels: &HashMap<String, usize>,
+    instr_count: usize,
+) -> Result<usize, AsmError> {
     let s = args.get(i).ok_or_else(|| err(lineno, "missing target operand"))?;
     if let Ok(n) = s.parse::<usize>() {
+        if n > instr_count {
+            return Err(err(
+                lineno,
+                format!("branch target {n} is outside the program (0..={instr_count})"),
+            ));
+        }
         return Ok(n);
     }
     labels

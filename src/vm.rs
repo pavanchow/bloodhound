@@ -229,7 +229,7 @@ pub struct Vm {
 
 impl Vm {
     /// Create a VM ready to run `program` from address 0 with a single entry
-    /// frame.
+    /// frame. A program with no instructions starts out halted.
     pub fn new(program: &Program) -> Self {
         let entry = Frame {
             func: "main".to_string(),
@@ -240,7 +240,7 @@ impl Vm {
         };
         Vm {
             pc: 0,
-            halted: false,
+            halted: program.code.is_empty(),
             stack: Vec::new(),
             globals: vec![0; program.globals.max(1)],
             memory: vec![0; program.memory.max(1)],
@@ -471,6 +471,12 @@ impl Vm {
             }
         }
         self.pc = next;
+        // A jump, call, or fall-through that leaves the code halts the machine.
+        // Without this the pc would sit out of range with halted == false, a
+        // stuck state that no longer steps but is not a terminal state either.
+        if next >= self.code.len() {
+            self.halted = true;
+        }
         Some(u)
     }
 
