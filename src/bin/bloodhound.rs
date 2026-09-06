@@ -11,6 +11,7 @@
 
 use bloodhound::asm::assemble;
 use bloodhound::debugger::{Debugger, StopReason, WatchLoc};
+use bloodhound::expr::{EvalCtx, Expr};
 use bloodhound::samples;
 use std::io::{self, BufRead, Write};
 
@@ -77,7 +78,22 @@ fn repl_from_source(name: &str, src: &str) {
 
 /// Returns false to quit.
 fn dispatch(d: &mut Debugger, line: &str) -> bool {
-    let mut it = line.split_whitespace();
+    // `... if <expr>` attaches a condition to break / breaki / watch.
+    let (head, cond_src) = match line.find(" if ") {
+        Some(i) => (&line[..i], Some(line[i + 4..].trim())),
+        None => (line, None),
+    };
+    let cond = match cond_src {
+        Some(text) => match Expr::parse(text) {
+            Ok(e) => Some(e),
+            Err(e) => {
+                println!("bad condition: {e}");
+                return true;
+            }
+        },
+        None => None,
+    };
+    let mut it = head.split_whitespace();
     let cmd = it.next().unwrap_or("");
     let arg = it.next();
     match cmd {
@@ -127,18 +143,27 @@ fn dispatch(d: &mut Debugger, line: &str) -> bool {
             None => println!("usage: goto <step>"),
         },
         "break" | "bp" => match arg.and_then(|s| s.parse::<u32>().ok()) {
-            Some(l) => match d.add_break_line(l) {
-                Some(a) => println!("breakpoint at line {l} (addr {a})"),
-                None => println!("no instruction on line {l}"),
-            },
-            None => println!("usage: break <line>"),
+            Some(l) => {
+                let hit = match cond {
+                    Some(e) => d.add_break_line_cond(l, e),
+                    None => d.add_break_line(l),
+                };
+                match hit {
+                    Some(a) => println!("breakpoint at line {l} (addr {a}){}", cond_suffix(cond_src)),
+                    None => println!("no instruction on line {l}"),
+                }
+            }
+            None => println!("usage: break <line> [if <expr>]"),
         },
         "breaki" => match arg.and_then(|s| s.parse::<usize>().ok()) {
             Some(a) => {
-                d.add_break(a);
-                println!("breakpoint at addr {a}");
+                match cond {
+                    Some(e) => d.add_break_cond(a, e),
+                    None => d.add_break(a),
+                }
+                println!("breakpoint at addr {a}{}", cond_suffix(cond_src));
             }
-            None => println!("usage: breaki <addr>"),
+            None => println!("usage: breaki <addr> [if <expr>]"),
         },
         "delete" | "d" => match arg.and_then(|s| s.parse::<u32>().ok()) {
             Some(l) => match d.line_to_addr(l) {
@@ -149,16 +174,36 @@ fn dispatch(d: &mut Debugger, line: &str) -> bool {
         },
         "watch" | "w" => match arg.and_then(parse_watch) {
             Some(loc) => {
-                d.add_watch(loc);
-                println!("watching {}", watch_name(loc));
+                match cond {
+                    Some(e) => d.add_watch_cond(loc, e),
+                    None => d.add_watch(loc),
+                }
+                println!("watching {}{}", watch_name(loc), cond_suffix(cond_src));
             }
-            None => println!("usage: watch g<idx> | m<idx> | l<idx>"),
+            None => println!("usage: watch g<idx> | m<idx> | l<idx> [if <expr>]"),
+        },
+        "eval" => {
+            let src = head.trim_start()["eval".len()..].trim();
+            match Expr::parse(src) {
+                Ok(e) => {
+                    let v = e.eval(&d.eval_ctx());
+                    println!("= {v}");
+                }
+                Err(e) => println!("bad expression: {e}"),
+            }
         },
         "bt" | "where" => print_backtrace(d),
         "print" | "p" => print_state(d),
         other => println!("unknown command `{other}` (try `help`)"),
     }
     true
+}
+
+fn cond_suffix(cond_src: Option<&str>) -> String {
+    match cond_src {
+        Some(text) => format!(" if {text}"),
+        None => String::new(),
+    }
 }
 
 fn report(d: &Debugger, reason: StopReason) {
@@ -283,14 +328,18 @@ fn print_help() {
   stepi / si          step a single instruction
   back / b            step backward one instruction (time travel)
   goto <step>         jump to an absolute step index (time travel)
-  break <line>        set a breakpoint on a source line
-  breaki <addr>       set a breakpoint on an instruction address
+  break <line> [if <expr>]   set a breakpoint, optionally conditional
+  breaki <addr> [if <expr>]  set an address breakpoint, optionally conditional
   delete <line>       remove a breakpoint on a source line
-  watch g<i>|m<i>|l<i>  watch a global, memory cell, or local
+  watch g<i>|m<i>|l<i> [if <expr>]  watch a global, cell, or local
+  eval <expr>         evaluate an expression against the current state
   bt / where          show the call stack
   p / print           show full machine state
   reset               restart at step 0
-  q / quit            exit"
+  q / quit            exit
+
+expressions use pc, depth, top (the stack top), globals[e], memory[e],
+integers, + - * / %, == != < <= > >=, && || ! and parentheses"
     );
 }
 

@@ -703,6 +703,239 @@ fn assembler_negative_battery() {
     assert!(vm.snapshot().halted);
 }
 
+// --- Gate 6: conditional breakpoints and expression watches -----------------
+
+use bloodhound::expr::{EvalCtx, Expr, ExprError};
+
+fn top_of(s: &Snapshot) -> i64 {
+    s.stack.last().copied().unwrap_or(0)
+}
+
+fn ctx_of(s: &Snapshot) -> EvalCtx<'_> {
+    EvalCtx::of_snapshot(s)
+}
+
+/// Reference conditional breakpoint stops computed straight from the trace:
+/// an arrival whose pc equals the address, not halted, and whose snapshot
+/// satisfies `pred`. The predicate is plain Rust on the snapshot, never the
+/// expression evaluator, so the two sides are independent.
+fn expected_cond_breakpoint_stops(
+    trace: &[Step],
+    addr: usize,
+    pred: impl Fn(&Snapshot) -> bool,
+) -> Vec<usize> {
+    (1..trace.len())
+        .filter(|&i| trace[i].pc == addr && !trace[i].halted && pred(&trace[i].snap))
+        .collect()
+}
+
+fn collect_cont_stops(d: &mut Debugger, addr: usize) -> Vec<usize> {
+    let mut stops = Vec::new();
+    loop {
+        match d.cont() {
+            StopReason::Breakpoint(a) => {
+                assert_eq!(a, addr);
+                stops.push(d.step_count());
+            }
+            StopReason::Halted => break,
+            StopReason::Limit => panic!("hit step limit"),
+            other => panic!("unexpected stop {other:?}"),
+        }
+    }
+    stops
+}
+
+#[test]
+fn gate_conditional_breakpoints_fuzz() {
+    // (text, independent predicate) pairs evaluated against every arrival.
+    let cases: [(&str, fn(&Snapshot) -> bool); 3] = [
+        ("globals[0] > 3", |s| s.globals.first().copied().unwrap_or(0) > 3),
+        ("memory[0] % 2 == 1", |s| {
+            let v = s.memory.first().copied().unwrap_or(0);
+            v.wrapping_rem(2) == 1
+        }),
+        ("top >= 0 && depth == 1", |s| top_of(s) >= 0 && s.frames.len() == 1),
+    ];
+    for seed in 0..fuzz_count() {
+        let p = gen_program(seed);
+        let trace = ground_truth(&p);
+        for addr in [0usize, p.code.len() / 2, p.code.len() - 1] {
+            for (text, pred) in cases {
+                let cond = Expr::parse(text).unwrap_or_else(|e| panic!("{text}: {e}"));
+                let want = expected_cond_breakpoint_stops(&trace, addr, pred);
+                let mut d = Debugger::new(p.clone());
+                d.add_break_cond(addr, cond);
+                let got = collect_cont_stops(&mut d, addr);
+                assert_eq!(got, want, "seed {seed} addr {addr} cond `{text}`");
+            }
+        }
+    }
+}
+
+#[test]
+fn gate_conditional_run_back_matches_trace() {
+    // From the halted end, reverse-continue with a conditional breakpoint must
+    // visit exactly the forward stop list, last hit first.
+    let p = gen_program(2);
+    let trace = ground_truth(&p);
+    let addr = p.code.len() / 2;
+    let pred = |s: &Snapshot| s.globals.first().copied().unwrap_or(0) > 2;
+    let want_fwd = expected_cond_breakpoint_stops(&trace, addr, pred);
+
+    let mut d = Debugger::new(p);
+    d.add_break_cond(addr, Expr::parse("globals[0] > 2").unwrap());
+    while d.forward() {}
+    let mut got_rev = Vec::new();
+    loop {
+        match d.run_back() {
+            StopReason::Breakpoint(a) => {
+                assert_eq!(a, addr);
+                got_rev.push(d.step_count());
+            }
+            StopReason::Start => break,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    got_rev.reverse();
+    assert_eq!(got_rev, want_fwd, "run_back visits the forward stops in reverse");
+}
+
+#[test]
+fn gate_watch_if_fuzz() {
+    // A conditional watch fires on the first changed watch per step whose
+    // condition holds on the post-change state. The reference implements the
+    // same rule with plain Rust predicates on the trace.
+    fn reference(trace: &[Step], loc: WatchLoc, keep: impl Fn(&Snapshot) -> bool) -> Vec<WatchHit> {
+        let mut hits = Vec::new();
+        for i in 1..trace.len() {
+            let old = watch_val(&trace[i - 1].snap, loc);
+            let new = watch_val(&trace[i].snap, loc);
+            if old != new && keep(&trace[i].snap) {
+                hits.push(WatchHit { loc, old, new, step: i });
+            }
+        }
+        hits
+    }
+
+    let cases: [(&str, fn(&Snapshot) -> bool); 2] = [
+        ("globals[0] % 2 == 0", |s| {
+            let v = s.globals.first().copied().unwrap_or(0);
+            v.wrapping_rem(2) == 0
+        }),
+        ("globals[0] > memory[0]", |s| {
+            let g = s.globals.first().copied().unwrap_or(0);
+            let m = s.memory.first().copied().unwrap_or(0);
+            g > m
+        }),
+    ];
+    for seed in 0..fuzz_count() {
+        let p = gen_program(seed);
+        let trace = ground_truth(&p);
+        for (text, keep) in cases {
+            let want = reference(&trace, WatchLoc::Global(0), keep);
+            let mut d = Debugger::new(p.clone());
+            d.add_watch_cond(WatchLoc::Global(0), Expr::parse(text).unwrap());
+            let mut got = Vec::new();
+            loop {
+                match d.cont() {
+                    StopReason::Watchpoint(hit) => {
+                        assert_eq!(hit.loc, WatchLoc::Global(0));
+                        got.push(hit);
+                    }
+                    StopReason::Halted => break,
+                    StopReason::Limit => panic!("step limit"),
+                    other => panic!("unexpected {other:?}"),
+                }
+            }
+            assert_eq!(got, want, "seed {seed} watch-if `{text}`");
+        }
+    }
+}
+
+#[test]
+fn gate_watch_if_skipped_condition_does_not_mask_other_watches() {
+    // Two watches change on the same step. The first has a false condition, so
+    // the scan continues and the second watch is reported.
+    let src = "\
+.globals 3
+.memory 8
+main:
+  push 1
+  storeg 0
+  push 5
+  storeg 1
+  halt
+";
+    let p = assemble(src).unwrap();
+    let mut d = Debugger::new(p);
+    d.add_watch_cond(WatchLoc::Global(0), Expr::parse("globals[0] > 100").unwrap());
+    d.add_watch(WatchLoc::Global(1));
+    let r = d.cont();
+    assert_eq!(
+        r,
+        StopReason::Watchpoint(WatchHit { loc: WatchLoc::Global(1), old: 0, new: 5, step: 4 })
+    );
+}
+
+#[test]
+fn expression_evaluation_never_mutates_machine_state() {
+    let p = gen_program(4);
+    let mut d = Debugger::new(p);
+    d.goto(7);
+    let before = d.snapshot();
+    let exprs = [
+        "pc", "depth", "top", "-top", "!pc", "pc + depth * 2",
+        "globals[0] + globals[3] - memory[7]", "memory[pc % 8]",
+        "globals[1000]", "memory[-5]", "1 / 0", "1 % 0",
+        "(top < 0) && (pc > 0) || (depth == 3)",
+        "9223372036854775807 + 1 + 9223372036854775807 + 1",
+    ];
+    for text in exprs {
+        let e = Expr::parse(text).unwrap_or_else(|err| panic!("{text}: {err}"));
+        let v = e.eval(&d.eval_ctx());
+        let _ = v;
+        assert_eq!(d.snapshot(), before, "evaluating `{text}` mutated the machine");
+    }
+    // Malformed parses must not touch the machine either.
+    for text in ["", "pc +", "bogus", "globals["] {
+        assert!(Expr::parse(text).is_err(), "`{text}` should not parse");
+        assert_eq!(d.snapshot(), before, "parsing `{text}` mutated the machine");
+    }
+}
+
+#[test]
+fn expression_indexing_matches_vm_reads() {
+    // memory[e] in an expression must read the same cell loadmem reads for the
+    // same address, including wrapped negative addresses.
+    let src = "\
+.memory 8
+main:
+  push -1
+  push 42
+  storemem
+  push -1
+  loadmem
+  print
+  halt
+";
+    let p = assemble(src).unwrap();
+    let mut vm = Vm::new(&p);
+    while vm.step().is_some() && vm.output.is_empty() {}
+    let printed: i64 = vm.output.last().and_then(|s| s.parse().ok()).expect("a printed value");
+    let cond = Expr::parse("memory[-1] == 42").unwrap();
+    assert!(cond.eval_cond(&EvalCtx::of_vm(&vm)), "memory[-1] must read the wrapped cell");
+    assert_eq!(printed, 42);
+}
+
+#[test]
+fn expression_errors_are_clean_values() {
+    // Parse errors carry a message and a source-free error type, nothing else.
+    let ExprError { message } = Expr::parse("globals[99999999999999999999]").unwrap_err();
+    assert!(message.contains("out of range"), "got: {message}");
+    let ExprError { message } = Expr::parse("foo").unwrap_err();
+    assert!(message.contains("unknown variable"), "got: {message}");
+}
+
 // --- a targeted step-over-across-nested-calls assertion --------------------
 
 #[test]

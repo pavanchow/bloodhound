@@ -7,8 +7,9 @@
 //! so [`Debugger::goto`] can reach any step in either direction and reconstruct
 //! the exact machine state forward execution had there.
 
+use crate::expr::{EvalCtx, Expr};
 use crate::vm::{Program, Snapshot, Undo, Vm};
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 /// A place the debugger can watch for changes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,6 +20,17 @@ pub enum WatchLoc {
     Mem(usize),
     /// A local slot in the current (innermost) frame.
     Local(usize),
+}
+
+/// A watchpoint: a location to watch plus an optional condition. When a
+/// condition is present the watch fires only on steps where the location
+/// changed and the condition holds on the state after the change.
+#[derive(Clone, Debug)]
+pub struct WatchEntry {
+    /// The location being watched.
+    pub loc: WatchLoc,
+    /// The optional fire condition.
+    pub cond: Option<Expr>,
 }
 
 /// A fired watchpoint: the location, its previous and new value, and the step at
@@ -63,8 +75,8 @@ pub struct Debugger {
     pub program: Program,
     vm: Vm,
     journal: Vec<Undo>,
-    breakpoints: BTreeSet<usize>,
-    watchpoints: Vec<WatchLoc>,
+    breakpoints: BTreeMap<usize, Option<Expr>>,
+    watchpoints: Vec<WatchEntry>,
 }
 
 impl Debugger {
@@ -75,7 +87,7 @@ impl Debugger {
             program,
             vm,
             journal: Vec::new(),
-            breakpoints: BTreeSet::new(),
+            breakpoints: BTreeMap::new(),
             watchpoints: Vec::new(),
         }
     }
@@ -95,6 +107,11 @@ impl Debugger {
     /// Immutable access to the underlying VM.
     pub fn vm(&self) -> &Vm {
         &self.vm
+    }
+
+    /// A read-only evaluation context over the current machine state.
+    pub fn eval_ctx(&self) -> EvalCtx<'_> {
+        EvalCtx::of_vm(&self.vm)
     }
 
     /// Whether the machine has halted.
@@ -121,17 +138,40 @@ impl Debugger {
 
     /// Set a breakpoint at an instruction address.
     pub fn add_break(&mut self, addr: usize) {
-        self.breakpoints.insert(addr);
+        self.breakpoints.insert(addr, None);
+    }
+
+    /// Set a breakpoint at an instruction address that only fires when
+    /// `cond` holds on the state at the stop, with the pc pointing at the
+    /// breakpointed instruction.
+    pub fn add_break_cond(&mut self, addr: usize, cond: Expr) {
+        self.breakpoints.insert(addr, Some(cond));
+    }
+
+    /// The condition attached to a breakpoint address, if any.
+    pub fn break_cond(&self, addr: usize) -> Option<&Expr> {
+        self.breakpoints.get(&addr).and_then(|c| c.as_ref())
     }
 
     /// Remove a breakpoint at an instruction address. Returns true if present.
     pub fn remove_break(&mut self, addr: usize) -> bool {
-        self.breakpoints.remove(&addr)
+        self.breakpoints.remove(&addr).is_some()
     }
 
     /// The set of breakpoint addresses, ascending.
     pub fn breakpoints(&self) -> Vec<usize> {
-        self.breakpoints.iter().copied().collect()
+        self.breakpoints.keys().copied().collect()
+    }
+
+    /// Whether a breakpoint at `addr` fires right now: an unconditional
+    /// breakpoint always does, a conditional one evaluates its expression
+    /// against the current machine state.
+    fn break_fires_here(&self, addr: usize) -> bool {
+        match self.breakpoints.get(&addr) {
+            None => false,
+            Some(None) => true,
+            Some(Some(cond)) => cond.eval_cond(&self.eval_ctx()),
+        }
     }
 
     /// The first instruction address that maps to a source line, if any.
@@ -142,32 +182,55 @@ impl Debugger {
     /// Set a breakpoint by source line. Returns the resolved address.
     pub fn add_break_line(&mut self, line: u32) -> Option<usize> {
         let addr = self.line_to_addr(line)?;
-        self.breakpoints.insert(addr);
+        self.add_break(addr);
+        Some(addr)
+    }
+
+    /// Set a conditional breakpoint by source line. Returns the resolved address.
+    pub fn add_break_line_cond(&mut self, line: u32, cond: Expr) -> Option<usize> {
+        let addr = self.line_to_addr(line)?;
+        self.add_break_cond(addr, cond);
         Some(addr)
     }
 
     // --- watchpoints -------------------------------------------------------
 
-    /// Add a watchpoint. Duplicates are ignored.
+    /// Add a watchpoint without a condition. Duplicate locations are ignored.
     pub fn add_watch(&mut self, loc: WatchLoc) {
-        if !self.watchpoints.contains(&loc) {
-            self.watchpoints.push(loc);
+        if !self.watchpoints.iter().any(|w| w.loc == loc) {
+            self.watchpoints.push(WatchEntry { loc, cond: None });
+        }
+    }
+
+    /// Add a watchpoint that fires only when the location changed and `cond`
+    /// holds on the state after the change. A duplicate location replaces its
+    /// condition.
+    pub fn add_watch_cond(&mut self, loc: WatchLoc, cond: Expr) {
+        match self.watchpoints.iter_mut().find(|w| w.loc == loc) {
+            Some(w) => w.cond = Some(cond),
+            None => self.watchpoints.push(WatchEntry { loc, cond: Some(cond) }),
         }
     }
 
     /// Remove a watchpoint. Returns true if it was present.
     pub fn remove_watch(&mut self, loc: WatchLoc) -> bool {
-        if let Some(i) = self.watchpoints.iter().position(|&w| w == loc) {
-            self.watchpoints.remove(i);
-            true
-        } else {
-            false
+        match self.watchpoints.iter().position(|w| w.loc == loc) {
+            Some(i) => {
+                self.watchpoints.remove(i);
+                true
+            }
+            None => false,
         }
     }
 
-    /// The current watchpoints.
-    pub fn watchpoints(&self) -> &[WatchLoc] {
-        &self.watchpoints
+    /// The watched locations, in registration order.
+    pub fn watchpoints(&self) -> Vec<WatchLoc> {
+        self.watchpoints.iter().map(|w| w.loc).collect()
+    }
+
+    /// The condition attached to a watched location, if any.
+    pub fn watch_cond(&self, loc: WatchLoc) -> Option<&Expr> {
+        self.watchpoints.iter().find(|w| w.loc == loc).and_then(|w| w.cond.as_ref())
     }
 
     fn read_watch(&self, loc: WatchLoc) -> i64 {
@@ -179,15 +242,25 @@ impl Debugger {
     }
 
     fn watch_values(&self) -> Vec<i64> {
-        self.watchpoints.iter().map(|&l| self.read_watch(l)).collect()
+        self.watchpoints.iter().map(|w| self.read_watch(w.loc)).collect()
     }
 
+    /// The first watch, in registration order, whose value changed and whose
+    /// condition passes. A changed watch with a false condition is skipped and
+    /// the scan continues, so one false condition cannot mask other watches.
     fn watch_diff(&self, before: &[i64]) -> Option<WatchHit> {
-        for (i, &loc) in self.watchpoints.iter().enumerate() {
-            let new = self.read_watch(loc);
-            if before.get(i).copied().unwrap_or(new) != new {
+        for (i, entry) in self.watchpoints.iter().enumerate() {
+            let new = self.read_watch(entry.loc);
+            if before.get(i).copied().unwrap_or(new) == new {
+                continue;
+            }
+            let fires = match &entry.cond {
+                None => true,
+                Some(cond) => cond.eval_cond(&self.eval_ctx()),
+            };
+            if fires {
                 return Some(WatchHit {
-                    loc,
+                    loc: entry.loc,
                     old: before[i],
                     new,
                     step: self.step_count(),
@@ -317,6 +390,8 @@ impl Debugger {
     // --- continue / reverse continue --------------------------------------
 
     /// Run forward until a breakpoint, a watchpoint change, a halt, or the limit.
+    /// A conditional breakpoint only stops when its condition holds on the state
+    /// at the stop.
     pub fn cont(&mut self) -> StopReason {
         let mut n = 0;
         while n < STEP_LIMIT {
@@ -330,7 +405,7 @@ impl Debugger {
             if let Some(hit) = self.watch_diff(&pre) {
                 return StopReason::Watchpoint(hit);
             }
-            if !self.vm.halted && self.breakpoints.contains(&self.vm.pc) {
+            if !self.vm.halted && self.break_fires_here(self.vm.pc) {
                 return StopReason::Breakpoint(self.vm.pc);
             }
             if self.vm.halted {
@@ -341,10 +416,11 @@ impl Debugger {
         StopReason::Limit
     }
 
-    /// Run backward until the most recent earlier breakpoint, or the start.
+    /// Run backward until the most recent earlier breakpoint whose condition
+    /// holds, or the start.
     pub fn run_back(&mut self) -> StopReason {
         while self.backward() {
-            if self.breakpoints.contains(&self.vm.pc) {
+            if self.break_fires_here(self.vm.pc) {
                 return StopReason::Breakpoint(self.vm.pc);
             }
         }
