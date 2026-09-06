@@ -495,6 +495,214 @@ fn numeric_labels_are_rejected() {
     assert!(assemble("999:\n  halt\n").is_err());
 }
 
+// --- Gate 5: adversarial edge cases -----------------------------------------
+
+#[test]
+fn breakpoint_at_address_zero() {
+    // Forward: a straight-line program leaves address 0 behind immediately, so
+    // continuing never stops there (step 0 is not an arrival).
+    let p = assemble("  push 1\n  print\n  halt\n").unwrap();
+    assert_eq!(p.line_at(0), 1);
+    check_breakpoint(&p, 0, "bp at addr 0 forward");
+
+    // Backward: run_back must land exactly on step 0 with the breakpoint.
+    let mut d = Debugger::new(p.clone());
+    d.add_break(0);
+    while d.forward() {}
+    let r = d.run_back();
+    assert_eq!(r, StopReason::Breakpoint(0));
+    assert_eq!(d.step_count(), 0);
+    assert_eq!(d.snapshot(), ground_truth(&p)[0].snap);
+
+    // On a looping program address 0 is re-arrived, so forward cont stops there.
+    let p2 = assemble(samples::SUM_LOOP).unwrap();
+    check_breakpoint(&p2, 0, "bp at addr 0 loop");
+}
+
+#[test]
+fn breakpoint_at_last_instruction() {
+    // The halt instruction's own address stops once, before the halt executes,
+    // and never on the halted terminal state.
+    let p = assemble("  push 1\n  halt\n").unwrap();
+    let halt_addr = p.code.len() - 1;
+    let trace = ground_truth(&p);
+    let mut d = Debugger::new(p);
+    d.add_break(halt_addr);
+    let r = d.cont();
+    assert_eq!(r, StopReason::Breakpoint(halt_addr));
+    assert_eq!(d.step_count(), trace.len() - 2);
+    assert!(!d.halted());
+    assert_eq!(d.cont(), StopReason::Halted);
+    assert_eq!(d.step_count(), trace.len() - 1);
+    // A third cont is a no-op on the halted machine.
+    assert_eq!(d.cont(), StopReason::Halted);
+}
+
+#[test]
+fn watchpoint_on_memory_written_by_the_watched_instruction() {
+    // storemem computes its target from the stack, so one instruction both
+    // decides and performs the write to the watched cell.
+    let src = "\n.memory 8\nmain:\n  push 3\n  push 5\n  storemem\n  halt\n";
+    let p = assemble(src).unwrap();
+    check_watchpoints(&p, &[WatchLoc::Mem(3)], "storemem self-write");
+
+    // A write that stores the same value is not a change and must not fire.
+    let p2 = assemble("  push 7\n  storeg 0\n  push 7\n  storeg 0\n  halt\n").unwrap();
+    let trace = ground_truth(&p2);
+    let mut d = Debugger::new(p2);
+    d.add_watch(WatchLoc::Global(0));
+    let r = d.cont();
+    assert_eq!(
+        r,
+        StopReason::Watchpoint(WatchHit { loc: WatchLoc::Global(0), old: 0, new: 7, step: 2 })
+    );
+    // Second write is a no-op: continue runs all the way to the halt.
+    assert_eq!(d.cont(), StopReason::Halted);
+    assert_eq!(d.step_count(), trace.len() - 1);
+}
+
+#[test]
+fn watchpoint_on_locals_across_calls() {
+    // A local watch follows the innermost frame, so a call changes what the
+    // watch reads even though no store executed. The reference diff uses the
+    // same rule, and both must agree.
+    for seed in 0..fuzz_count() {
+        let p = gen_program(seed);
+        check_watchpoints(&p, &[WatchLoc::Local(0), WatchLoc::Local(1)], &format!("seed {seed} locals"));
+    }
+}
+
+#[test]
+fn step_out_at_outermost_frame_runs_to_halt() {
+    let p = assemble(samples::SUM_LOOP).unwrap();
+    let trace = ground_truth(&p);
+    let want = expected_step_out(&trace, 0);
+    assert_eq!(want, trace.len() - 1, "outermost step-out lands on the halted terminal state");
+    let mut d = Debugger::new(p);
+    d.step_out();
+    assert_eq!(d.step_count(), want);
+    assert_eq!(d.snapshot(), trace[want].snap);
+    assert!(d.halted());
+}
+
+#[test]
+fn step_over_on_a_call_at_the_final_instruction() {
+    // The call is the last instruction of the program and its callee halts.
+    let src = "main:\n  jmp start\nf:\n  halt\nstart:\n  push 1\n  call f 0 1\n";
+    let p = assemble(src).unwrap();
+    assert!(matches!(p.code.last(), Some(Op::Call(..))), "call must be the final instruction");
+    let trace = ground_truth(&p);
+    let call_step = trace
+        .iter()
+        .position(|s| matches!(p.code.get(s.pc), Some(Op::Call(..))))
+        .expect("the call executes");
+    let want = expected_step_over(&trace, call_step);
+    assert_eq!(want, trace.len() - 1);
+    let mut d = Debugger::new(p);
+    d.goto(call_step);
+    d.step_over();
+    assert_eq!(d.step_count(), want);
+    assert_eq!(d.snapshot(), trace[want].snap);
+    assert!(d.halted());
+}
+
+#[test]
+fn goto_to_the_current_step_is_a_no_op() {
+    let p = assemble(samples::FACTORIAL).unwrap();
+    let trace = ground_truth(&p);
+    let mut d = Debugger::new(p);
+    for k in [0usize, 3, trace.len() / 2, trace.len() - 1] {
+        d.reset();
+        d.goto(k);
+        let before = d.snapshot();
+        assert_eq!(d.goto(k), StopReason::Stepped);
+        assert_eq!(d.step_count(), k);
+        assert_eq!(d.snapshot(), before, "goto(current) at step {k} moved the machine");
+    }
+}
+
+#[test]
+fn reverse_at_step_zero_and_forward_at_the_end() {
+    let p = assemble(samples::SUM_LOOP).unwrap();
+    let trace = ground_truth(&p);
+    let total = trace.len() - 1;
+    let mut d = Debugger::new(p);
+
+    // At step 0 there is nothing to reverse.
+    assert!(!d.backward());
+    assert_eq!(d.run_back(), StopReason::Start);
+    assert_eq!(d.snapshot(), trace[0].snap);
+
+    // Run to the end: nothing more to run forward, cont is a no-op, and a huge
+    // goto clamps at the terminal step.
+    while d.forward() {}
+    assert!(!d.forward());
+    assert_eq!(d.cont(), StopReason::Halted);
+    assert_eq!(d.step_count(), total);
+    assert_eq!(d.goto(total + 1_000_000), StopReason::Halted);
+    assert_eq!(d.step_count(), total);
+    assert_eq!(d.snapshot(), trace[total].snap);
+
+    // A stopped-in-time goto just past the natural end also clamps.
+    d.reset();
+    assert_eq!(d.goto(total + 5), StopReason::Halted);
+    assert_eq!(d.snapshot(), trace[total].snap);
+}
+
+#[test]
+fn watchpoint_takes_precedence_over_a_coincident_breakpoint() {
+    // One step both writes the watched global and lands on a breakpoint (the
+    // halt instruction at address 2). The watch is reported for that step, and
+    // continuing from there still terminates cleanly.
+    let p = assemble("  push 5\n  storeg 0\n  halt\n").unwrap();
+    let mut d = Debugger::new(p);
+    d.add_break(2); // the halt instruction
+    d.add_watch(WatchLoc::Global(0));
+    let r = d.cont();
+    assert_eq!(
+        r,
+        StopReason::Watchpoint(WatchHit { loc: WatchLoc::Global(0), old: 0, new: 5, step: 2 })
+    );
+    assert_eq!(d.pc(), 2, "the machine sits on the breakpoint address");
+    assert_eq!(d.cont(), StopReason::Halted);
+}
+
+#[test]
+fn assembler_negative_battery() {
+    let bad = [
+        "  frobnicate\n  halt\n",                      // unknown opcode
+        "  push 99999999999999999999999999\n  halt\n", // immediate overflow
+        "loop:\nloop:\n  halt\n",                      // duplicate labels
+        "",                                            // empty program
+        "   \n; only a comment\n",                     // blank and comment only
+        "solo_label:\n",                               // label with no instruction
+        "  jmp\n  halt\n",                             // missing target
+        "  push\n  halt\n",                            // missing integer
+        "  load -1\n  halt\n",                         // negative slot index
+        "  store\n  halt\n",                           // missing slot index
+        ".bss 8\n  halt\n",                            // unknown directive
+        ".globals -3\n  halt\n",                       // invalid directive value
+        ".globals\n  halt\n",                          // directive without value
+        ":\n  halt\n",                                 // empty label
+        "  call f 1\nf:\n  ret\n",                     // call missing an operand
+        "  jz\n  halt\n",                              // conditional branch missing target
+    ];
+    for src in bad {
+        let res = assemble(src);
+        assert!(res.is_err(), "expected `{src:?}` to be rejected");
+        let e = res.unwrap_err();
+        assert!(!e.message.is_empty(), "error for `{src:?}` needs a message");
+        assert!(e.line >= 1, "error for `{src:?}` needs a source line");
+    }
+
+    // A program with no halt still assembles. Running it falls off the end and
+    // the machine reports a halted terminal state.
+    let p = assemble("  push 1\n  push 2\n  add\n").unwrap();
+    let mut vm = Vm::new(&p);
+    while vm.step().is_some() {}
+    assert!(vm.snapshot().halted);
+}
+
 // --- a targeted step-over-across-nested-calls assertion --------------------
 
 #[test]
