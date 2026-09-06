@@ -117,13 +117,15 @@ Alongside the gate there are unit tests per module: assembler round-trip, each o
 
 ## The stress suite
 
-`tests/stress.rs` pushes the same oracles to max scale. It runs multi-million-step programs near the trace cap, verifies thousands of random-access `goto` scrubs against independently recorded anchor snapshots, drives thousands of alternating forward and backward moves, replays full breakpoint and watchpoint hit streams against a raw forward pass, and descends deep recursion stacks. These tests are `#[ignore]`d so the normal gate stays fast, and run explicitly:
+`tests/stress.rs` pushes the same oracles to max scale. It runs multi-million-step programs near the trace cap, verifies thousands of random-access `goto` scrubs against independently recorded anchor snapshots, drives thousands of alternating forward and backward moves, replays full breakpoint and watchpoint hit streams against a raw forward pass, and descends deep recursion stacks. The tests run in the default suite at a small size and reach max scale through environment variables, with no code change:
 
 ```
-cargo test --release --test stress -- --ignored --nocapture --test-threads=1
+cargo test    # small scale, part of the default suite
+BLOODHOUND_STRESS_ITERS=110000 BLOODHOUND_STRESS_SCRUBS=40000 \
+  cargo test --release --test stress -- --nocapture --test-threads=1    # max scale
 ```
 
-Scale knobs: `BLOODHOUND_STRESS_ITERS` (loop iterations per long program), `BLOODHOUND_STRESS_SCRUBS` (random goto jumps), `BLOODHOUND_STRESS_ALT` (alternating forward and backward moves), and `BLOODHOUND_STRESS_DEPTH` (recursion depth).
+Scale knobs: `BLOODHOUND_STRESS_ITERS` (loop iterations per long program, default 400, max 110000), `BLOODHOUND_STRESS_SCRUBS` (random goto jumps, default 200, max 40000), `BLOODHOUND_STRESS_ALT` (alternating forward and backward moves, default 200, max 30000), and `BLOODHOUND_STRESS_DEPTH` (recursion depth, default 40, max 2000).
 
 ## Layout
 

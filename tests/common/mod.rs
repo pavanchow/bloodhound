@@ -31,12 +31,13 @@ pub fn fuzz_count() -> u64 {
         .unwrap_or(48)
 }
 
-/// The iteration count the stress suite gives to its looping generator.
+/// The iteration count the stress suite gives to its looping generator. The
+/// default keeps the default suite in seconds, max scale is 110000.
 pub fn stress_iters() -> u64 {
     std::env::var("BLOODHOUND_STRESS_ITERS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(55_000)
+        .unwrap_or(400)
 }
 
 pub struct Rng(pub u64);

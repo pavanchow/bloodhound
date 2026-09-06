@@ -1,22 +1,28 @@
-//! The Bloodhound max-scale stress suite.
+//! The Bloodhound stress suite.
 //!
 //! These tests push the debugger to its limits: multi-million-step traces,
 //! thousands of time-travel moves, deep recursion, and long breakpoint and
 //! watchpoint streams, all verified against independently computed
-//! expectations. They are marked `#[ignore]` so the normal gate stays fast,
-//! and run with:
+//! expectations. They run in the default suite at a small size and reach max
+//! scale through environment variables, with no code change:
 //!
 //! ```text
-//! cargo test --release --test stress -- --ignored --nocapture
+//! BLOODHOUND_STRESS_ITERS=110000 BLOODHOUND_STRESS_SCRUBS=40000 \
+//!   cargo test --release --test stress -- --nocapture --test-threads=1
 //! ```
 //!
-//! Scale is controlled by environment variables:
+//! Scale is controlled by environment variables (defaults keep the default
+//! suite inside a few seconds):
 //! - `BLOODHOUND_STRESS_ITERS` loop iterations for the long programs
-//!   (default 55000, roughly 1.9 million steps per program)
-//! - `BLOODHOUND_STRESS_SCRUBS` random `goto` jumps (default 50000)
-//! - `BLOODHOUND_STRESS_ALT` alternating forward/backward moves (default 10000)
+//!   (default 400, roughly 14 thousand steps per program, max scale 110000,
+//!   roughly 4 million steps)
+//! - `BLOODHOUND_STRESS_SCRUBS` random `goto` jumps (default 200, max 40000)
+//! - `BLOODHOUND_STRESS_ALT` alternating forward/backward moves
+//!   (default 200, max 30000)
+//! - `BLOODHOUND_STRESS_DEPTH` recursion depth (default 40, max 2000)
 //!
-//! Run single threaded for stable timings and bounded memory.
+//! Max-scale runs prefer release mode and a single thread for stable timings
+//! and bounded memory.
 
 // Test routines use compact single-letter names for programs, debuggers, and
 // trace indices.
@@ -33,14 +39,14 @@ fn stress_scrubs() -> usize {
     std::env::var("BLOODHOUND_STRESS_SCRUBS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(50_000)
+        .unwrap_or(200)
 }
 
 fn stress_alt() -> usize {
     std::env::var("BLOODHOUND_STRESS_ALT")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(10_000)
+        .unwrap_or(200)
 }
 
 /// Run the full forward pass once, recording (step, snapshot) anchors every
@@ -73,7 +79,6 @@ fn anchors(p: &Program, every: usize) -> (usize, Vec<(usize, Snapshot)>) {
 // --- stress 1: reversibility on a multi-million-step path -------------------
 
 #[test]
-#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_long_reversibility() {
     let iters = stress_iters();
     let p = gen_loop_program(0xBEEF, iters);
@@ -139,7 +144,6 @@ fn stress_long_reversibility() {
 // --- stress 2: breakpoint stream over a long loop ---------------------------
 
 #[test]
-#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_long_breakpoints() {
     let iters = stress_iters();
     let p = gen_loop_program(0x00C0_FFEE, iters);
@@ -162,7 +166,7 @@ fn stress_long_breakpoints() {
         "stress_long_breakpoints: iters={iters} total_steps={total} expected_hits={}",
         expected.len()
     );
-    assert!(expected.len() > 1000, "the loop must produce a long hit stream");
+    assert!(expected.len() > 100, "the loop must produce a per-iteration hit stream");
 
     let mut d = Debugger::new(p);
     d.add_break(bp_addr);
@@ -192,7 +196,6 @@ fn stress_long_breakpoints() {
 // --- stress 3: watchpoint stream over a long loop ----------------------------
 
 #[test]
-#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_long_watchpoints() {
     let iters = stress_iters();
     let p = gen_loop_program(0xD00D, iters);
@@ -222,7 +225,7 @@ fn stress_long_watchpoints() {
         "stress_long_watchpoints: iters={iters} total_steps={total} expected_hits={}",
         expected.len()
     );
-    assert!(expected.len() > 1000, "watched values must change often");
+    assert!(expected.len() > 100, "watched values must change often");
 
     let mut d = Debugger::new(p);
     for &w in &watches {
@@ -252,7 +255,6 @@ fn watch_val_raw(vm: &bloodhound::vm::Vm, loc: WatchLoc) -> i64 {
 // --- stress 4: random-access scrubbing ---------------------------------------
 
 #[test]
-#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_goto_scrub() {
     let iters = stress_iters();
     let p = gen_loop_program(0xFACE, iters);
@@ -297,12 +299,11 @@ fn stress_goto_scrub() {
 // --- stress 5: deep recursion -------------------------------------------------
 
 #[test]
-#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_deep_recursion() {
     let n = std::env::var("BLOODHOUND_STRESS_DEPTH")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(1_500u64);
+        .unwrap_or(40u64);
     let p = gen_recursion_program(n);
     let trace = ground_truth(&p);
     let total = trace.len() - 1;
@@ -363,7 +364,6 @@ fn stress_deep_recursion() {
 // --- stress 6: single-step bookkeeping over a long stretch -------------------
 
 #[test]
-#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_single_step_alignment() {
     let iters = stress_iters();
     let p = gen_loop_program(0x5EED, iters);
@@ -395,7 +395,6 @@ fn stress_single_step_alignment() {
 // --- stress 7: conditional breakpoints at scale -------------------------------
 
 #[test]
-#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_conditional_breakpoints_long() {
     let iters = stress_iters();
     let p = gen_loop_program(0xF005, iters);
@@ -420,7 +419,7 @@ fn stress_conditional_breakpoints_long() {
         "stress_conditional_breakpoints_long: iters={iters} total_steps={total} expected_hits={}",
         expected.len()
     );
-    assert!(expected.len() > 1000);
+    assert!(expected.len() > 100);
 
     let mut d = Debugger::new(p);
     d.add_break_cond(bp_addr, cond);
