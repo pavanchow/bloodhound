@@ -46,8 +46,18 @@ fn strip_comment(line: &str) -> &str {
 }
 
 /// Assemble source text into a [`Program`].
+///
+/// # Errors
+///
+/// Returns an [`AsmError`] carrying the 1-based source line for any malformed
+/// input: an unknown mnemonic or directive, a missing or invalid operand, a
+/// duplicate or numeric label, an unknown label target, a branch target outside
+/// the program, an oversized or duplicate size directive, or a program with no
+/// instructions.
 pub fn assemble(src: &str) -> Result<Program, AsmError> {
-    let source: Vec<String> = src.lines().map(|s| s.to_string()).collect();
+    // Line numbers fit a u32: a source with 2^32 lines cannot be materialized.
+    #![allow(clippy::cast_possible_truncation)]
+    let source: Vec<String> = src.lines().map(ToString::to_string).collect();
 
     let mut globals = DEFAULT_GLOBALS;
     let mut memory = DEFAULT_MEMORY;
@@ -327,7 +337,7 @@ helper:
     #[test]
     fn disassembly_matches_source_ops() {
         let p = assemble("  push 5\n  neg\n  print\n  halt\n").unwrap();
-        let text: Vec<String> = p.code.iter().map(|o| o.to_string()).collect();
+        let text: Vec<String> = p.code.iter().map(ToString::to_string).collect();
         assert_eq!(text, vec!["push 5", "neg", "print", "halt"]);
     }
 }

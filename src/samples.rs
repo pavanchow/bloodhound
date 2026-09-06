@@ -83,6 +83,7 @@ pub const ALL: &[(&str, &str)] = &[
 ];
 
 /// Look up a sample by name.
+#[must_use]
 pub fn by_name(name: &str) -> Option<&'static str> {
     ALL.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
 }

@@ -18,6 +18,10 @@
 //!
 //! Run single threaded for stable timings and bounded memory.
 
+// Test routines use compact single-letter names for programs, debuggers, and
+// trace indices.
+#![allow(clippy::many_single_char_names)]
+
 use bloodhound::debugger::{Debugger, StopReason, WatchHit, WatchLoc};
 use bloodhound::expr::Expr;
 use bloodhound::vm::{Program, Snapshot};
@@ -49,7 +53,7 @@ fn anchors(p: &Program, every: usize) -> (usize, Vec<(usize, Snapshot)>) {
             out.push((i, vm.snapshot()));
         }
     });
-    let last = out.last().map(|&(i, _)| i).unwrap_or(0);
+    let last = out.last().map_or(0, |&(i, _)| i);
     if last != total {
         // Re-run to capture the terminal state (raw_pass is cheap).
         let mut vm = bloodhound::vm::Vm::new(p);
@@ -69,7 +73,7 @@ fn anchors(p: &Program, every: usize) -> (usize, Vec<(usize, Snapshot)>) {
 // --- stress 1: reversibility on a multi-million-step path -------------------
 
 #[test]
-#[ignore]
+#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_long_reversibility() {
     let iters = stress_iters();
     let p = gen_loop_program(0xBEEF, iters);
@@ -78,7 +82,7 @@ fn stress_long_reversibility() {
 
     let mut d = Debugger::new(p);
     // goto to every anchor reconstructs the exact forward state.
-    for &(i, ref snap) in marks.iter() {
+    for &(i, ref snap) in &marks {
         d.reset();
         d.goto(i);
         assert_eq!(d.step_count(), i, "step_count after goto({i})");
@@ -135,10 +139,10 @@ fn stress_long_reversibility() {
 // --- stress 2: breakpoint stream over a long loop ---------------------------
 
 #[test]
-#[ignore]
+#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_long_breakpoints() {
     let iters = stress_iters();
-    let p = gen_loop_program(0xC0FFEE, iters);
+    let p = gen_loop_program(0x00C0_FFEE, iters);
     // The accumulator store inside the loop body: hit once per iteration. It
     // is the last StoreG(0) in the program (the first is the prologue init).
     let bp_addr = p
@@ -188,7 +192,7 @@ fn stress_long_breakpoints() {
 // --- stress 3: watchpoint stream over a long loop ----------------------------
 
 #[test]
-#[ignore]
+#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_long_watchpoints() {
     let iters = stress_iters();
     let p = gen_loop_program(0xD00D, iters);
@@ -197,7 +201,7 @@ fn stress_long_watchpoints() {
     // Independent reference diff over the raw pass.
     let mut expected: Vec<WatchHit> = Vec::new();
     let mut prev: Option<Vec<i64>> = None;
-    let total = raw_pass(&p, |_i, vm| {
+    let total = raw_pass(&p, |i, vm| {
         let vals: Vec<i64> = watches.iter().map(|&l| watch_val_raw(vm, l)).collect();
         if let Some(before) = &prev {
             for (k, &loc) in watches.iter().enumerate() {
@@ -206,7 +210,7 @@ fn stress_long_watchpoints() {
                         loc,
                         old: before[k],
                         new: vals[k],
-                        step: _i,
+                        step: i,
                     });
                     break;
                 }
@@ -248,7 +252,7 @@ fn watch_val_raw(vm: &bloodhound::vm::Vm, loc: WatchLoc) -> i64 {
 // --- stress 4: random-access scrubbing ---------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_goto_scrub() {
     let iters = stress_iters();
     let p = gen_loop_program(0xFACE, iters);
@@ -288,7 +292,7 @@ fn stress_goto_scrub() {
 // --- stress 5: deep recursion -------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_deep_recursion() {
     let n = std::env::var("BLOODHOUND_STRESS_DEPTH")
         .ok()
@@ -354,7 +358,7 @@ fn stress_deep_recursion() {
 // --- stress 6: single-step bookkeeping over a long stretch -------------------
 
 #[test]
-#[ignore]
+#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_single_step_alignment() {
     let iters = stress_iters();
     let p = gen_loop_program(0x5EED, iters);
@@ -386,7 +390,7 @@ fn stress_single_step_alignment() {
 // --- stress 7: conditional breakpoints at scale -------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "max-scale stress, run explicitly (see the module docs)"]
 fn stress_conditional_breakpoints_long() {
     let iters = stress_iters();
     let p = gen_loop_program(0xF005, iters);

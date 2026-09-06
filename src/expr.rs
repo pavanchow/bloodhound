@@ -56,6 +56,7 @@ pub struct EvalCtx<'a> {
 
 impl<'a> EvalCtx<'a> {
     /// Build the context for the current state of a VM.
+    #[must_use]
     pub fn of_vm(vm: &'a Vm) -> EvalCtx<'a> {
         EvalCtx {
             pc: vm.pc,
@@ -67,6 +68,7 @@ impl<'a> EvalCtx<'a> {
     }
 
     /// Build the context for a recorded snapshot.
+    #[must_use]
     pub fn of_snapshot(snap: &'a Snapshot) -> EvalCtx<'a> {
         EvalCtx {
             pc: snap.pc,
@@ -125,7 +127,7 @@ pub enum Expr {
     Or(Box<Expr>, Box<Expr>),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Tok {
     Int(i64),
     Pc,
@@ -237,7 +239,7 @@ impl Parser {
     }
 
     fn bump(&mut self) -> Option<Tok> {
-        let t = self.toks.get(self.pos).cloned();
+        let t = self.toks.get(self.pos).copied();
         if t.is_some() {
             self.pos += 1;
         }
@@ -381,6 +383,12 @@ impl Parser {
 
 impl Expr {
     /// Parse a complete expression. Trailing input is an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`ExprError`] describing the first problem: an unknown
+    /// variable, an out-of-range integer literal, an unexpected or missing
+    /// token, or trailing input after a complete expression.
     pub fn parse(src: &str) -> Result<Expr, ExprError> {
         let toks = tokenize(src)?;
         if toks.is_empty() {
@@ -397,37 +405,27 @@ impl Expr {
     /// Evaluate the expression against a read-only context. Total: division or
     /// remainder by zero yields 0, globals out of range read 0, and a memory
     /// index is reduced into range with Euclidean remainder.
+    #[must_use]
     pub fn eval(&self, ctx: &EvalCtx<'_>) -> i64 {
         match self {
             Expr::Const(v) => *v,
-            Expr::Pc => ctx.pc as i64,
-            Expr::Depth => ctx.depth as i64,
+            Expr::Pc => i64::try_from(ctx.pc).unwrap_or(i64::MAX),
+            Expr::Depth => i64::try_from(ctx.depth).unwrap_or(i64::MAX),
             Expr::Top => ctx.top,
             Expr::Global(e) => {
                 let i = e.eval(ctx);
-                if i < 0 {
-                    0
-                } else {
-                    ctx.globals.get(i as usize).copied().unwrap_or(0)
-                }
+                usize::try_from(i)
+                    .ok()
+                    .and_then(|idx| ctx.globals.get(idx))
+                    .copied()
+                    .unwrap_or(0)
             }
             Expr::Memory(e) => {
                 let i = e.eval(ctx);
-                let n = ctx.memory.len() as i64;
-                if n == 0 {
-                    0
-                } else {
-                    let idx = i.rem_euclid(n) as usize;
-                    ctx.memory[idx]
-                }
+                let idx = mem_index(i, ctx.memory.len());
+                ctx.memory.get(idx).copied().unwrap_or(0)
             }
-            Expr::Not(e) => {
-                if e.eval(ctx) == 0 {
-                    1
-                } else {
-                    0
-                }
-            }
+            Expr::Not(e) => i64::from(e.eval(ctx) == 0),
             Expr::Neg(e) => e.eval(ctx).wrapping_neg(),
             Expr::Add(a, b) => a.eval(ctx).wrapping_add(b.eval(ctx)),
             Expr::Sub(a, b) => a.eval(ctx).wrapping_sub(b.eval(ctx)),
@@ -454,35 +452,34 @@ impl Expr {
             Expr::Ge(a, b) => bool_val(a.eval(ctx) >= b.eval(ctx)),
             Expr::Eq(a, b) => bool_val(a.eval(ctx) == b.eval(ctx)),
             Expr::Ne(a, b) => bool_val(a.eval(ctx) != b.eval(ctx)),
-            Expr::And(a, b) => {
-                if a.eval(ctx) != 0 && b.eval(ctx) != 0 {
-                    1
-                } else {
-                    0
-                }
-            }
-            Expr::Or(a, b) => {
-                if a.eval(ctx) != 0 || b.eval(ctx) != 0 {
-                    1
-                } else {
-                    0
-                }
-            }
+            Expr::And(a, b) => i64::from(a.eval(ctx) != 0 && b.eval(ctx) != 0),
+            Expr::Or(a, b) => i64::from(a.eval(ctx) != 0 || b.eval(ctx) != 0),
         }
     }
 
     /// Evaluate as a condition: nonzero means true.
+    #[must_use]
     pub fn eval_cond(&self, ctx: &EvalCtx<'_>) -> bool {
         self.eval(ctx) != 0
     }
 }
 
-fn bool_val(b: bool) -> i64 {
-    if b {
-        1
-    } else {
+/// Reduce a memory index into range the same way the VM's `loadmem` does.
+fn mem_index(i: i64, len: usize) -> usize {
+    // Memory is capped at `MAX_DATA_CELLS` (2^20 cells), so the length fits an
+    // i64 with a vast margin and the Euclidean-reduced index, which lies in
+    // 0..len, always fits a usize.
+    #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+    let n = len as i64;
+    if n == 0 {
         0
+    } else {
+        i.rem_euclid(n) as usize
     }
+}
+
+fn bool_val(b: bool) -> i64 {
+    i64::from(b)
 }
 
 #[cfg(test)]

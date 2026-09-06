@@ -8,6 +8,10 @@
 //! The number of random programs is bounded for CI and controlled by the
 //! `BLOODHOUND_FUZZ_OPS` environment variable.
 
+// Test routines use compact single-letter names for programs, debuggers, and
+// trace indices.
+#![allow(clippy::many_single_char_names)]
+
 use bloodhound::asm::assemble;
 use bloodhound::debugger::{Debugger, StopReason, WatchHit, WatchLoc};
 use bloodhound::expr::{EvalCtx, Expr, ExprError};

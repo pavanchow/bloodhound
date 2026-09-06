@@ -3,6 +3,9 @@
 //! The generators here are deterministic: the same seed always produces the
 //! same program, so failures are reproducible from the seed alone.
 
+// Generator variables use single letters that match the math they mirror.
+#![allow(clippy::many_single_char_names)]
+
 #![allow(dead_code)]
 
 use bloodhound::asm::assemble;
@@ -50,12 +53,18 @@ impl Rng {
         self.0 = x;
         x.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
+    /// A uniform value in 0..n. The result is below `n` by construction, so the
+    /// narrowing cast to usize cannot lose information.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn range(&mut self, n: usize) -> usize {
         (self.next() % n as u64) as usize
     }
     #[allow(dead_code)]
     pub fn small(&mut self) -> i64 {
-        (self.next() % 19) as i64 - 9
+        // The modulo result is 0..=18, so the cast to i64 is exact.
+        #[allow(clippy::cast_possible_wrap)]
+        let v = (self.next() % 19) as i64;
+        v - 9
     }
 }
 

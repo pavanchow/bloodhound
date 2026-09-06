@@ -81,6 +81,7 @@ pub struct Debugger {
 
 impl Debugger {
     /// Load a program and place the machine at step 0.
+    #[must_use]
     pub fn new(program: Program) -> Self {
         let vm = Vm::new(&program);
         Debugger {
@@ -100,36 +101,43 @@ impl Debugger {
     }
 
     /// The current step index (number of instructions executed from the start).
+    #[must_use]
     pub fn step_count(&self) -> usize {
         self.journal.len()
     }
 
     /// Immutable access to the underlying VM.
+    #[must_use]
     pub fn vm(&self) -> &Vm {
         &self.vm
     }
 
     /// A read-only evaluation context over the current machine state.
+    #[must_use]
     pub fn eval_ctx(&self) -> EvalCtx<'_> {
         EvalCtx::of_vm(&self.vm)
     }
 
     /// Whether the machine has halted.
+    #[must_use]
     pub fn halted(&self) -> bool {
         self.vm.halted
     }
 
     /// A full comparable snapshot of the current machine state.
+    #[must_use]
     pub fn snapshot(&self) -> Snapshot {
         self.vm.snapshot()
     }
 
     /// The 1-based source line the machine is about to execute.
+    #[must_use]
     pub fn current_line(&self) -> u32 {
         self.program.line_at(self.vm.pc)
     }
 
     /// The current program counter.
+    #[must_use]
     pub fn pc(&self) -> usize {
         self.vm.pc
     }
@@ -149,6 +157,7 @@ impl Debugger {
     }
 
     /// The condition attached to a breakpoint address, if any.
+    #[must_use]
     pub fn break_cond(&self, addr: usize) -> Option<&Expr> {
         self.breakpoints.get(&addr).and_then(|c| c.as_ref())
     }
@@ -159,6 +168,7 @@ impl Debugger {
     }
 
     /// The set of breakpoint addresses, ascending.
+    #[must_use]
     pub fn breakpoints(&self) -> Vec<usize> {
         self.breakpoints.keys().copied().collect()
     }
@@ -175,6 +185,7 @@ impl Debugger {
     }
 
     /// The first instruction address that maps to a source line, if any.
+    #[must_use]
     pub fn line_to_addr(&self, line: u32) -> Option<usize> {
         self.program.line_of.iter().position(|&l| l == line)
     }
@@ -224,11 +235,13 @@ impl Debugger {
     }
 
     /// The watched locations, in registration order.
+    #[must_use]
     pub fn watchpoints(&self) -> Vec<WatchLoc> {
         self.watchpoints.iter().map(|w| w.loc).collect()
     }
 
     /// The condition attached to a watched location, if any.
+    #[must_use]
     pub fn watch_cond(&self, loc: WatchLoc) -> Option<&Expr> {
         self.watchpoints.iter().find(|w| w.loc == loc).and_then(|w| w.cond.as_ref())
     }
@@ -451,17 +464,18 @@ impl Debugger {
     // --- inspection --------------------------------------------------------
 
     /// The active call frames, entry frame first.
+    #[must_use]
     pub fn backtrace(&self) -> &[crate::vm::Frame] {
         &self.vm.frames
     }
 
     /// The locals of the innermost frame.
+    #[must_use]
     pub fn locals(&self) -> &[i64] {
         self.vm
             .frames
             .last()
-            .map(|f| f.locals.as_slice())
-            .unwrap_or(&[])
+            .map_or(&[], |f| f.locals.as_slice())
     }
 }
 

@@ -2,7 +2,7 @@
 //!
 //! Usage:
 //!   bloodhound            Load the factorial sample into an interactive REPL.
-//!   bloodhound <name>     Load a built-in sample by name (factorial, sum_loop, memory).
+//!   bloodhound <name>     Load a built-in sample by name (factorial, `sum_loop`, memory).
 //!   bloodhound file <p>   Load an assembly file from path `p`.
 //!   bloodhound list       List the built-in samples.
 //!   bloodhound demo       Run a scripted demonstration and exit.
@@ -17,7 +17,7 @@ use std::io::{self, BufRead, Write};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(|s| s.as_str()) {
+    match args.first().map(String::as_str) {
         None => repl_from_source("factorial", samples::FACTORIAL),
         Some("list") => {
             println!("built-in samples:");
@@ -77,6 +77,7 @@ fn repl_from_source(name: &str, src: &str) {
 }
 
 /// Returns false to quit.
+#[allow(clippy::too_many_lines)] // a flat match over the REPL command words is the table
 fn dispatch(d: &mut Debugger, line: &str) -> bool {
     // `... if <expr>` attaches a condition to break / breaki / watch.
     let (head, cond_src) = match line.find(" if ") {
@@ -106,27 +107,27 @@ fn dispatch(d: &mut Debugger, line: &str) -> bool {
         }
         "c" | "continue" => {
             let r = d.cont();
-            report(d, r);
+            report(d, &r);
         }
         "rc" => {
             let r = d.run_back();
-            report(d, r);
+            report(d, &r);
         }
         "stepi" | "si" => {
             let r = d.step_instr();
-            report(d, r);
+            report(d, &r);
         }
         "step" | "s" => {
             let r = d.step_line();
-            report(d, r);
+            report(d, &r);
         }
         "next" | "n" => {
             let r = d.step_over();
-            report(d, r);
+            report(d, &r);
         }
         "out" | "finish" => {
             let r = d.step_out();
-            report(d, r);
+            report(d, &r);
         }
         "back" | "b" => {
             if d.backward() {
@@ -206,7 +207,7 @@ fn cond_suffix(cond_src: Option<&str>) -> String {
     }
 }
 
-fn report(d: &Debugger, reason: StopReason) {
+fn report(d: &Debugger, reason: &StopReason) {
     match &reason {
         StopReason::Breakpoint(a) => println!("stopped at breakpoint (addr {a}, line {})", d.current_line()),
         StopReason::Watchpoint(hit) => println!(
@@ -230,8 +231,7 @@ fn render(d: &Debugger) {
     let op = d
         .vm()
         .current_op()
-        .map(|o| o.to_string())
-        .unwrap_or_else(|| "<end>".to_string());
+        .map_or_else(|| "<end>".to_string(), ToString::to_string);
     let status = if d.halted() { " [halted]" } else { "" };
     println!(
         "step {:<4} line {:<3} pc {:<3} {}{}",
@@ -280,14 +280,15 @@ fn print_backtrace(d: &Debugger) {
 }
 
 fn print_source(d: &Debugger) {
+    // Line numbers fit a u32: a source with 2^32 lines cannot be materialized.
+    #![allow(clippy::cast_possible_truncation)]
     let cur = d.current_line();
     for (i, text) in d.program.source.iter().enumerate() {
         let lineno = (i + 1) as u32;
         let marker = if lineno == cur { "->" } else { "  " };
         let bp = if d
             .line_to_addr(lineno)
-            .map(|a| d.breakpoints().contains(&a))
-            .unwrap_or(false)
+            .is_some_and(|a| d.breakpoints().contains(&a))
         {
             "*"
         } else {
@@ -352,13 +353,14 @@ fn run_demo() {
     println!();
 
     // Breakpoint on the multiply line inside `recurse`.
-    let mul_line = d
-        .program
-        .source
-        .iter()
-        .position(|l| l.contains("n * fact"))
-        .map(|i| (i + 1) as u32)
-        .unwrap_or(0);
+    let mul_line = u32::try_from(
+        d.program
+            .source
+            .iter()
+            .position(|l| l.contains("n * fact"))
+            .map_or(0, |i| i + 1),
+    )
+    .unwrap_or(0);
     let addr = d.add_break_line(mul_line).unwrap();
     println!("set breakpoint on line {mul_line} (addr {addr}), the `mul` in recurse\n");
 
@@ -368,7 +370,7 @@ fn run_demo() {
 
     println!("continue #1:");
     let r = d.cont();
-    report(&d, r);
+    report(&d, &r);
     println!("  backtrace here:");
     print_backtrace(&d);
     let saved_step = d.step_count();
@@ -377,7 +379,7 @@ fn run_demo() {
 
     println!("continue #2 (deeper recursion):");
     let r = d.cont();
-    report(&d, r);
+    report(&d, &r);
     println!();
 
     println!("time travel: goto step {saved_step} (back to the first breakpoint hit):");
@@ -399,10 +401,10 @@ fn run_demo() {
 
     println!("run to the end, then reverse-continue to the breakpoint:");
     let r = d.cont();
-    report(&d, r);
+    report(&d, &r);
     println!("  output at halt: {:?}", d.vm().output);
     let r = d.run_back();
-    report(&d, r);
+    report(&d, &r);
     println!("  output after reverse-continue (the print un-happened): {:?}", d.vm().output);
     println!("=== demo complete ===");
 }

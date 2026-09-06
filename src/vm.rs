@@ -135,6 +135,7 @@ pub struct Program {
 
 impl Program {
     /// The 1-based source line for an instruction address, or 0 if out of range.
+    #[must_use]
     pub fn line_at(&self, pc: usize) -> u32 {
         self.line_of.get(pc).copied().unwrap_or(0)
     }
@@ -230,6 +231,7 @@ pub struct Vm {
 impl Vm {
     /// Create a VM ready to run `program` from address 0 with a single entry
     /// frame. A program with no instructions starts out halted.
+    #[must_use]
     pub fn new(program: &Program) -> Self {
         let entry = Frame {
             func: "main".to_string(),
@@ -253,11 +255,13 @@ impl Vm {
     }
 
     /// The current call depth (number of active frames).
+    #[must_use]
     pub fn depth(&self) -> usize {
         self.frames.len()
     }
 
     /// The op about to execute, if the pc is in range and not halted.
+    #[must_use]
     pub fn current_op(&self) -> Option<&Op> {
         if self.halted {
             None
@@ -267,6 +271,7 @@ impl Vm {
     }
 
     /// A comparable snapshot of the full observable state.
+    #[must_use]
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             pc: self.pc,
@@ -280,6 +285,7 @@ impl Vm {
     }
 
     /// Read a local of the current frame (0 if out of range).
+    #[must_use]
     pub fn local(&self, i: usize) -> i64 {
         self.frames.last().and_then(|f| f.locals.get(i)).copied().unwrap_or(0)
     }
@@ -324,6 +330,13 @@ impl Vm {
 
     /// Execute a single instruction, returning the undo record for it. Returns
     /// `None` if the machine is already halted or the pc is out of range.
+    ///
+    /// # Panics
+    ///
+    /// Never for a reachable state: the one internal `expect` guards an
+    /// invariant (a frame is present whenever more than one exists) that
+    /// `call` and `ret` maintain between them.
+    #[allow(clippy::too_many_lines)] // one match arm per opcode is the natural shape of a dispatch
     pub fn step(&mut self) -> Option<Undo> {
         if self.halted {
             return None;
@@ -433,7 +446,7 @@ impl Vm {
                 let name = self
                     .names
                     .get(target)
-                    .and_then(|o| o.clone())
+                    .and_then(Clone::clone)
                     .unwrap_or_else(|| format!("fn@{target}"));
                 let frame = Frame {
                     func: name,
@@ -485,6 +498,10 @@ impl Vm {
     }
 
     fn mem_index(&self, addr: i64) -> usize {
+        // Memory is capped at `MAX_DATA_CELLS` (2^20 cells), so the length fits
+        // an i64 with a vast margin and the Euclidean-reduced index, which lies
+        // in 0..n, always fits a usize.
+        #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
         let n = self.memory.len() as i64;
         if n == 0 {
             0
@@ -496,7 +513,7 @@ impl Vm {
     fn cmp(&mut self, u: &mut Undo, f: impl Fn(i64, i64) -> bool) {
         let b = self.spop(u);
         let a = self.spop(u);
-        self.spush(u, if f(a, b) { 1 } else { 0 });
+        self.spush(u, i64::from(f(a, b)));
     }
 
     /// Reverse a single instruction using its undo record. This is the inverse
