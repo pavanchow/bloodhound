@@ -3,8 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bloodhound - a time-travel debugger</title>
+<title>Bloodhound: a portable time-travel debugger in Rust</title>
+<meta name="description" content="Bloodhound by Pavan Nallamothu: a portable time-travel debugger built on a small self-contained stack VM. Step backward through a running program, scrub to any point on its execution timeline, and watch state change and un-change. One dependency-free Rust crate that behaves identically everywhere.">
+<meta name="author" content="Pavan Nallamothu (pavanchow)">
+<link rel="canonical" href="https://pavanchow.github.io/bloodhound/">
 <link rel="icon" type="image/svg+xml" href="logo.svg">
+<link rel="author" href="https://github.com/pavanchow">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Bloodhound: a portable time-travel debugger in Rust">
+<meta property="og:description" content="Step backward through a running program, scrub to any point on its timeline, and watch state change and un-change. A dependency-free reverse debugger you can read in one sitting. By Pavan Nallamothu.">
+<meta property="og:url" content="https://pavanchow.github.io/bloodhound/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Bloodhound: a portable time-travel debugger in Rust">
+<meta name="twitter:description" content="A portable time-travel debugger on a tiny stack VM. Step back, scrub the timeline, watch state un-change. Reverse execution verified by a machine oracle.">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Bloodhound","applicationCategory":"DeveloperApplication","operatingSystem":"Cross-platform","description":"Bloodhound is a portable time-travel debugger built on a small self-contained stack VM. It records every instruction it runs, so you can step backward through a program, jump to any earlier step, and reconstruct the exact machine state forward execution had there. It is one dependency-free Rust crate whose reverse execution is checked by a machine oracle.","url":"https://pavanchow.github.io/bloodhound/","author":{"@type":"Person","name":"Pavan Nallamothu"},"programmingLanguage":"Rust","codeRepository":"https://github.com/pavanchow/bloodhound","license":"https://opensource.org/licenses/MIT"}
+</script>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Person","name":"Pavan Nallamothu","alternateName":"pavanchow","url":"https://github.com/pavanchow","sameAs":["https://github.com/pavanchow","https://hackerone.com/pavanchow"]}
+</script>
 <style>
 :root {
   --bg: #f5f5f7;
@@ -166,16 +183,87 @@ footer a { color: var(--accent); text-decoration: none; }
   }
   body { background: var(--bg); color: var(--fg); }
 }
+
+/* cocoon-grade chrome layered over the playground styles above. */
+html { scroll-behavior: smooth; }
+.cwrap { max-width: 820px; margin: 0 auto; padding: 0 24px; }
+nav.site { position: sticky; top: 0; z-index: 30; background: rgba(255,255,255,.82);
+  backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--border); }
+@media (prefers-color-scheme: dark) { nav.site { background: rgba(0,0,0,.72); } }
+nav.site .row { display: flex; justify-content: space-between; align-items: center; height: 56px;
+  max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+nav.site .brand { display: flex; align-items: center; gap: 9px; font-size: 18px; font-weight: 650;
+  letter-spacing: -.01em; color: var(--fg); }
+nav.site .brand .gem { width: 16px; height: 16px; border-radius: 50% 50% 50% 50%/60% 60% 40% 40%;
+  background: linear-gradient(135deg, #5ea0ff, #0071e3); }
+nav.site .links { display: flex; gap: 24px; align-items: center; }
+nav.site .links a { color: var(--fg); font-size: 14.5px; text-decoration: none; }
+nav.site .links a:hover { color: var(--accent); }
+@media (max-width: 640px) { nav.site .links a:not(.gh) { display: none; } }
+
+.hero { padding: 74px 24px 22px; text-align: center; }
+.hero img { display: block; margin: 0 auto 8px; }
+.hero .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--accent); margin: 0; }
+.hero h1.big { font-size: clamp(38px, 6.6vw, 62px); line-height: 1.05; letter-spacing: -.035em;
+  font-weight: 700; margin: 16px auto 0; max-width: 14ch; text-wrap: balance; color: var(--fg); }
+.hero p.sub { max-width: 680px; margin: 22px auto 0; font-size: clamp(16px, 2vw, 20px);
+  color: var(--muted); line-height: 1.6; }
+.cta-row { display: flex; gap: 13px; justify-content: center; flex-wrap: wrap; margin-top: 30px; }
+.hbtn { display: inline-block; padding: 12px 25px; border-radius: 999px; font-size: 15px;
+  font-weight: 600; border: 1px solid var(--fg); color: var(--fg); text-decoration: none; }
+.hbtn:hover { opacity: .75; }
+.hbtn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+
+details.co-howto { max-width: 780px; margin: 8px auto 20px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); padding: 2px 20px 12px; }
+details.co-howto > summary { cursor: pointer; font-weight: 600; font-size: 16px; padding: 15px 0;
+  list-style: none; color: var(--fg); text-transform: none; letter-spacing: normal; }
+details.co-howto > summary::-webkit-details-marker { display: none; }
+details.co-howto > summary::before { content: "\25B8"; display: inline-block; margin-right: 9px;
+  width: auto; height: auto; border: 0; transform: none; color: var(--accent); transition: transform .15s; }
+details.co-howto[open] > summary::before { transform: rotate(90deg); }
+
+.stage { max-width: 1180px; margin: 30px auto 0; padding: 0 20px; }
+
+section.narr { padding: 74px 0; border-top: 1px solid var(--border); }
+section.narr h2 { font-size: clamp(25px, 4vw, 36px); line-height: 1.12; letter-spacing: -.025em;
+  font-weight: 660; text-align: center; max-width: 760px; margin: 0 auto; color: var(--fg); }
+section.narr p.lead { max-width: 640px; margin: 18px auto 0; text-align: center; color: var(--muted);
+  font-size: 16px; line-height: 1.6; }
+section.narr pre { background: #15161c; color: #ececf4; border-radius: 14px; padding: 20px 22px;
+  font-family: var(--mono); font-size: 13px; line-height: 1.62; overflow-x: auto; max-width: 720px;
+  margin: 28px auto 0; }
+section.narr pre .cm { color: #8a8d9a; } section.narr pre .g { color: #7fd6a0; }
+footer.site { padding: 56px 0; border-top: 1px solid var(--border); text-align: center;
+  color: var(--muted); margin-top: 0; }
+footer.site .name { color: var(--fg); font-weight: 600; }
+footer.site p + p { margin-top: 10px; }
+footer.site a { color: var(--accent); text-decoration: none; }
+@media (max-width: 640px) { .hero { padding: 52px 20px 20px; } section.narr { padding: 54px 0; } }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header class="hero">
-    <img src="logo.svg" alt="Bloodhound logo" width="72" height="72" style="display:block;margin:0 auto 8px">
-    <h1>Bloodhound</h1>
-    <p>A portable time-travel debugger. Step backward through a running program, scrub any point on its timeline, and watch state change and un-change. This page is a faithful re-implementation of the engine in <a href="https://github.com/pavanchow/bloodhound">the repository</a>.</p>
-  </header>
+<noscript><div style="max-width:820px;margin:0 auto;padding:40px 24px;color:#6e6e73">Bloodhound is a portable time-travel debugger built on a small self-contained stack VM, by Pavan Nallamothu. It records every instruction it runs, so you can step backward through a program, jump to any earlier step, and reconstruct the exact machine state forward execution had there. Source: <a href="https://github.com/pavanchow/bloodhound">github.com/pavanchow/bloodhound</a>.</div></noscript>
 
+<nav class="site"><div class="row">
+  <div class="brand"><span class="gem"></span>Bloodhound</div>
+  <div class="links"><a href="#sim">Debugger</a><a href="#how">How it works</a><a href="#use">Use it</a><a class="gh" href="https://github.com/pavanchow/bloodhound">GitHub</a></div>
+</div></nav>
+
+<div class="hero">
+  <img src="logo.svg" alt="Bloodhound logo" width="72" height="72">
+  <p class="eyebrow">Rust · reverse debugging</p>
+  <h1 class="big">Step backward<br>through a bug.</h1>
+  <p class="sub">Bloodhound is a portable time-travel debugger built on a small self-contained stack VM. Most debuggers only move forward, so overshooting the moment a bug appears means restarting. Bloodhound records every instruction it runs, so you can step back, jump to any earlier step, and reconstruct the exact machine state forward execution had there. The stack, memory, locals, call frames, and program counter all rewind together. Pick a sample, set a breakpoint, and scrub the timeline in both directions.</p>
+  <div class="cta-row">
+    <a class="hbtn primary" href="#sim">Open the debugger</a>
+    <a class="hbtn" href="https://github.com/pavanchow/bloodhound">View on GitHub</a>
+  </div>
+</div>
+
+  <div class="stage" id="sim">
   <div class="toolbar">
     <label style="font-size:13px;color:var(--muted)">Program</label>
     <select id="sample" aria-label="sample program">
@@ -240,8 +328,9 @@ footer a { color: var(--accent); text-decoration: none; }
       </div>
     </div>
   </div>
+  </div>
 
-  <details class="card howto">
+  <details class="co-howto howto">
     <summary>How to use this playground</summary>
     <div class="tourbox" id="tour">Guided tour: loading...</div>
     <h3>The controls</h3>
@@ -272,10 +361,47 @@ footer a { color: var(--accent); text-decoration: none; }
     </ol>
   </details>
 
-  <footer>
-    Bloodhound &middot; <a href="https://github.com/pavanchow/bloodhound">github.com/pavanchow/bloodhound</a>
-  </footer>
-</div>
+
+<section class="narr" id="how"><div class="cwrap">
+  <h2>Reverse execution that is a true inverse</h2>
+  <p class="lead">The debugger's claims are backed by a machine-checkable oracle in <code>tests/gate.rs</code>. It builds a ground-truth forward trace that snapshots the full VM state at every step, then checks each feature against it. Reverse execution is proven to be an exact inverse, not an approximation.</p>
+  <pre><span class="cm"># tests/gate.rs, checked against the ground-truth forward trace</span>
+time-travel reversibility   <span class="g">forward K then back K is byte-identical, goto(N) rebuilds step N</span>
+breakpoint correctness      <span class="g">stops at exactly the breakpoint addresses, nowhere else</span>
+watchpoint correctness      <span class="g">fires on exactly the steps the watched cell changes</span>
+step-over / step-out        <span class="g">same-frame next line, and return of the current frame</span>
+conditional breaks + watches<span class="g">compared to an independent Rust predicate, both directions</span>
+
+<span class="cm"># more random programs, longer run:</span>
+BLOODHOUND_FUZZ_OPS=400 cargo test</pre>
+  <p class="lead" style="margin-top:26px">This page reaches the same result the Rust engine does. It runs the program once and deep-clones the state after every step, so every motion command is index math over that history; the Rust engine reaches the identical state with a per-instruction undo journal. Conditional-breakpoint expressions are total and strictly read-only, so evaluating a condition can never disturb the machine.</p>
+</div></section>
+
+<section class="narr" id="use"><div class="cwrap">
+  <h2>Use it</h2>
+  <pre><span class="cm"># load the factorial sample into the REPL</span>
+cargo run
+
+<span class="cm"># run the scripted demonstration and exit</span>
+cargo run -- demo
+
+<span class="cm"># load a built-in sample by name, or list them</span>
+cargo run -- sum_loop
+cargo run -- list
+
+<span class="cm"># load an assembly file</span>
+cargo run -- file prog.asm
+
+<span class="cm"># the unit tests and the correctness gate</span>
+cargo test
+
+<span class="cm"># inside the REPL: c / rc / s / n / back / goto &lt;step&gt; / break / watch</span></pre>
+</div></section>
+
+<footer class="site"><div class="cwrap">
+  <p>Bloodhound is MIT licensed. Source, tests, and the design notes are on <a href="https://github.com/pavanchow/bloodhound">GitHub</a>.</p>
+  <p>By <span class="name">Pavan Nallamothu</span>.</p>
+</div></footer>
 
 <script>
 "use strict";
