@@ -6,6 +6,7 @@
 <title>Bloodhound: a portable time-travel debugger in Rust</title>
 <meta name="description" content="Bloodhound by Pavan Nallamothu: a portable time-travel debugger built on a small self-contained stack VM. Step backward through a running program, scrub to any point on its execution timeline, and watch state change and un-change. One dependency-free Rust crate that behaves identically everywhere.">
 <meta name="author" content="Pavan Nallamothu (pavanchow)">
+<meta name="keywords" content="time-travel debugger, reverse debugger, reverse debugging, record and replay, stack VM, bytecode VM, undo journal, step backward, execution timeline, breakpoints, watchpoints, conditional breakpoints, step over, step out, call stack, deterministic, portable, Rust, rr, gdb record, WinDbg time travel, Pavan Nallamothu, pavanchow">
 <link rel="canonical" href="https://pavanchow.github.io/bloodhound/">
 <link rel="icon" type="image/svg+xml" href="logo.svg">
 <link rel="author" href="https://github.com/pavanchow">
@@ -17,7 +18,7 @@
 <meta name="twitter:title" content="Bloodhound: a portable time-travel debugger in Rust">
 <meta name="twitter:description" content="A portable time-travel debugger on a tiny stack VM. Step back, scrub the timeline, watch state un-change. Reverse execution verified by a machine oracle.">
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Bloodhound","applicationCategory":"DeveloperApplication","operatingSystem":"Cross-platform","description":"Bloodhound is a portable time-travel debugger built on a small self-contained stack VM. It records every instruction it runs, so you can step backward through a program, jump to any earlier step, and reconstruct the exact machine state forward execution had there. It is one dependency-free Rust crate whose reverse execution is checked by a machine oracle.","url":"https://pavanchow.github.io/bloodhound/","author":{"@type":"Person","name":"Pavan Nallamothu"},"programmingLanguage":"Rust","codeRepository":"https://github.com/pavanchow/bloodhound","license":"https://opensource.org/licenses/MIT"}
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Bloodhound","applicationCategory":"DeveloperApplication","operatingSystem":"Cross-platform","softwareVersion":"0.1.0","description":"Bloodhound is a portable time-travel debugger built on a small self-contained stack VM. It records every instruction it runs, so you can step backward through a program, jump to any earlier step, and reconstruct the exact machine state forward execution had there. It is one dependency-free Rust crate whose reverse execution is checked by a machine oracle.","url":"https://pavanchow.github.io/bloodhound/","author":{"@type":"Person","name":"Pavan Nallamothu"},"programmingLanguage":"Rust","codeRepository":"https://github.com/pavanchow/bloodhound","license":"https://opensource.org/licenses/MIT"}
 </script>
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"Person","name":"Pavan Nallamothu","alternateName":"pavanchow","url":"https://github.com/pavanchow","sameAs":["https://github.com/pavanchow","https://hackerone.com/pavanchow"]}
@@ -242,6 +243,31 @@ footer.site .name { color: var(--fg); font-weight: 600; }
 footer.site p + p { margin-top: 10px; }
 footer.site a { color: var(--accent); text-decoration: none; }
 @media (max-width: 640px) { .hero { padding: 52px 20px 20px; } section.narr { padding: 54px 0; } }
+
+nav.site .v { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+section.narr .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--accent); text-align: center; margin: 0; }
+.diff-rows { max-width: 760px; margin: 40px auto 0; }
+.diff-rows .r { display: grid; grid-template-columns: minmax(150px,1fr) 2fr; gap: 12px 34px;
+  padding: 22px 0; border-top: 1px solid var(--border); text-align: left; }
+.diff-rows .r:first-child { border-top: none; }
+.diff-rows .r b { font-size: 17px; color: var(--fg); }
+.diff-rows .r p { color: var(--muted); margin: 0; font-size: 15px; line-height: 1.6; }
+.diff-rows .r code { font-family: var(--mono); font-size: 13px; background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; }
+@media (max-width: 640px) { .diff-rows .r { grid-template-columns: 1fr; gap: 5px; } }
+.pgrid { display: grid; grid-template-columns: repeat(2,1fr); gap: 15px; max-width: 860px;
+  margin: 44px auto 0; text-align: left; }
+@media (max-width: 640px) { .pgrid { grid-template-columns: 1fr; } }
+.pcard { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 20px 22px; box-shadow: var(--shadow); }
+.pcard h3 { font-family: var(--mono); font-size: 15px; margin: 0 0 8px; display: flex;
+  align-items: center; gap: 10px; color: var(--fg); }
+.pcard p { color: var(--muted); margin: 0; font-size: 14.5px; line-height: 1.58; }
+.pcard p code { font-family: var(--mono); background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 1px 5px; font-size: 12.5px; }
+.ptag { font-family: var(--mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; padding: 2px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -249,7 +275,7 @@ footer.site a { color: var(--accent); text-decoration: none; }
 
 <nav class="site"><div class="row">
   <div class="brand"><img src="logo.svg" class="brandlogo" alt="" width="22" height="22">Bloodhound</div>
-  <div class="links"><a href="#sim">Debugger</a><a href="#how">How it works</a><a href="#use">Use it</a><a class="gh" href="https://github.com/pavanchow/bloodhound">GitHub</a></div>
+  <div class="links"><a href="#sim">Debugger</a><a href="#how">How it works</a><a href="#concepts">Primitives</a><a href="#diff">How it differs</a><a href="#use">Use it</a><a class="gh" href="https://github.com/pavanchow/bloodhound">GitHub</a><span class="v">v0.1.0</span></div>
 </div></nav>
 
 <div class="hero">
@@ -377,8 +403,40 @@ BLOODHOUND_FUZZ_OPS=400 cargo test</pre>
   <p class="lead" style="margin-top:26px">This page reaches the same result the Rust engine does. It runs the program once and deep-clones the state after every step, so every motion command is index math over that history; the Rust engine reaches the identical state with a per-instruction undo journal. Conditional-breakpoint expressions are total and strictly read-only, so evaluating a condition can never disturb the machine.</p>
 </div></section>
 
+<section class="narr" id="concepts"><div class="cwrap">
+  <p class="eyebrow">The primitives that matter</p>
+  <h2 style="margin-top:16px">Six primitives of a time-travel debugger.</h2>
+  <p class="lead">Every one is a real command you can drive above or from the REPL, each small enough to read in the source.</p>
+  <div class="pgrid">
+    <div class="pcard"><h3><span class="ptag">time travel</span> Reverse step</h3><p><code>back</code> moves one instruction backward in time and restores the exact earlier state. The Rust engine does it with a per-instruction undo journal.</p></div>
+    <div class="pcard"><h3><span class="ptag">scrub</span> goto any step</h3><p><code>goto &lt;step&gt;</code> jumps to an absolute step index, forward or back, reconstructing the state forward execution had at that point.</p></div>
+    <div class="pcard"><h3><span class="ptag">breakpoints</span> Line and address, conditional</h3><p><code>break &lt;line&gt;</code> and <code>breaki &lt;addr&gt;</code>, each optionally <code>if &lt;expr&gt;</code>. Reverse-continue with <code>rc</code> stops at the previous breakpoint.</p></div>
+    <div class="pcard"><h3><span class="ptag">watch</span> Data watchpoints</h3><p><code>watch</code> a global, memory cell, or local. It fires on exactly the steps the watched location changes, matching a reference diff of the trace.</p></div>
+    <div class="pcard"><h3><span class="ptag">stepping</span> Into, over, out</h3><p><code>s</code>, <code>n</code>, and <code>out</code> work over source lines: descend into calls, run a call to completion, or return from the current frame.</p></div>
+    <div class="pcard"><h3><span class="ptag">expr</span> Safe condition language</h3><p>Conditions read <code>pc</code>, <code>depth</code>, <code>top</code>, <code>globals[e]</code>, and <code>memory[e]</code>. Evaluation is total and strictly read-only, so a condition can never disturb the machine.</p></div>
+  </div>
+</div></section>
+
+<section class="narr" id="diff"><div class="cwrap">
+  <h2>The portable, from-scratch reverse debugger</h2>
+  <p class="lead">Reverse debuggers exist. Bloodhound trades their reach over native processes for something small, deterministic, and identical on every platform.</p>
+  <div class="diff-rows">
+    <div class="r"><b>rr</b><p>Records and replays a native process, powerful for real programs but bound to Linux and specific hardware and heavyweight to set up.</p></div>
+    <div class="r"><b>gdb record and replay</b><p>Adds reverse execution to native targets, tied to gdb and platform-specific process control.</p></div>
+    <div class="r"><b>WinDbg time travel debugging</b><p>Captures full traces of Windows processes, a large tool built for a single operating system.</p></div>
+    <div class="r"><b>Bloodhound</b><p>Debugs its own tiny stack VM instead of a native process, so it is one dependency-free Rust crate that behaves identically everywhere and whose reverse execution is checked by a machine oracle. Small enough to read in one sitting, safe enough for an agent to drive.</p></div>
+  </div>
+</div></section>
+
 <section class="narr" id="use"><div class="cwrap">
   <h2>Use it</h2>
+  <p class="lead">A REPL over a handful of built-in samples, an assembly loader, and the correctness gate.</p>
+  <div class="diff-rows">
+    <div class="r"><b>REPL</b><p><code>cargo run</code> loads a sample and drops into the debugger. Type <code>help</code> for every command and <code>src</code> to see the program.</p></div>
+    <div class="r"><b>samples and files</b><p><code>cargo run -- list</code> shows the built-in programs; <code>cargo run -- file prog.asm</code> loads your own assembly.</p></div>
+    <div class="r"><b>scripted demo</b><p><code>cargo run -- demo</code> runs the scripted demonstration and exits.</p></div>
+    <div class="r"><b>the gate and stress suite</b><p><code>cargo test</code> runs the oracle in <code>tests/gate.rs</code> and the stress suite; the fuzz and stress scale knobs are environment variables.</p></div>
+  </div>
   <pre><span class="cm"># load the factorial sample into the REPL</span>
 cargo run
 
