@@ -1,3 +1,5 @@
+<img src="docs/logo.svg" alt="Bloodhound logo" width="96">
+
 # Bloodhound
 
 A portable time-travel debugger. Bloodhound runs a small self-contained stack VM and lets you step backward through a program, scrub to any point on its execution timeline, and watch state change and un-change.

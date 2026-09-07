@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bloodhound - a time-travel debugger</title>
+<link rel="icon" type="image/svg+xml" href="logo.svg">
 <style>
 :root {
   --bg: #f5f5f7;
@@ -135,6 +136,11 @@ input[type=range] { width: 100%; margin-top: 8px; accent-color: var(--accent); h
 .howto h3 { margin: 18px 0 6px; font-size: 16px; }
 .howto ol, .howto ul { margin: 6px 0; padding-left: 22px; }
 .howto code { font-family: var(--mono); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 12.5px; }
+details.howto > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 9px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+details.howto > summary::-webkit-details-marker { display: none; }
+details.howto > summary::before { content: ""; width: 7px; height: 7px; border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); transform: rotate(-45deg); transition: transform .2s; flex: none; }
+details.howto[open] > summary::before { transform: rotate(45deg); }
+details.howto[open] > summary { margin-bottom: 12px; }
 .howto kbd { font-family: var(--sans); background: var(--panel-2); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 6px; padding: 1px 7px; font-size: 12px; }
 .tourbox { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 12px; padding: 12px 16px; margin-top: 12px; font-size: 14px; }
 
@@ -165,6 +171,7 @@ footer a { color: var(--accent); text-decoration: none; }
 <body>
 <div class="wrap">
   <header class="hero">
+    <img src="logo.svg" alt="Bloodhound logo" width="72" height="72" style="display:block;margin:0 auto 8px">
     <h1>Bloodhound</h1>
     <p>A portable time-travel debugger. Step backward through a running program, scrub any point on its timeline, and watch state change and un-change. This page is a faithful re-implementation of the engine in <a href="https://github.com/pavanchow/bloodhound">the repository</a>.</p>
   </header>
@@ -234,8 +241,8 @@ footer a { color: var(--accent); text-decoration: none; }
     </div>
   </div>
 
-  <div class="card howto">
-    <h2>How to use this playground</h2>
+  <details class="card howto">
+    <summary>How to use this playground</summary>
     <div class="tourbox" id="tour">Guided tour: loading...</div>
     <h3>The controls</h3>
     <ul>
@@ -263,7 +270,7 @@ footer a { color: var(--accent); text-decoration: none; }
       <li>Drag the <b>timeline</b> to the far left, then to the far right, to leap across the whole run.</li>
       <li>Switch to <code>factorial</code> and use <b>Continue</b> to a breakpoint inside <code>recurse</code>, then read the deep <b>call stack</b>.</li>
     </ol>
-  </div>
+  </details>
 
   <footer>
     Bloodhound &middot; <a href="https://github.com/pavanchow/bloodhound">github.com/pavanchow/bloodhound</a>
