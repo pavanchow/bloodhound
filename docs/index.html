@@ -3,25 +3,32 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bloodhound: a portable time-travel debugger in Rust</title>
-<meta name="description" content="Bloodhound by Pavan Nallamothu: a portable time-travel debugger built on a small self-contained stack VM. Step backward through a running program, scrub to any point on its execution timeline, and watch state change and un-change. One dependency-free Rust crate that behaves identically everywhere.">
-<meta name="author" content="Pavan Nallamothu (pavanchow)">
-<meta name="keywords" content="time-travel debugger, reverse debugger, reverse debugging, record and replay, stack VM, bytecode VM, undo journal, step backward, execution timeline, breakpoints, watchpoints, conditional breakpoints, step over, step out, call stack, deterministic, portable, Rust, rr, gdb record, WinDbg time travel, Pavan Nallamothu, pavanchow">
+<title>Bloodhound: time-travel reverse debugger in Rust | Pavan Nallamothu</title>
+<meta name="description" content="Bloodhound by Pavan Nallamothu: a portable time-travel debugger in Rust. Step backward through a running program and scrub to any point on its execution timeline.">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="author" content="Pavan Nallamothu">
+<meta name="keywords" content="bloodhound, time-travel debugger, reverse debugger, reverse debugging, record and replay, stack VM, bytecode VM, undo journal, step backward, execution timeline, breakpoints, watchpoints, call stack, debug backward in time, bloodhound rust, rr, gdb reverse debugging, Pavan Nallamothu, pavanchow">
 <link rel="canonical" href="https://pavanchow.github.io/bloodhound/">
 <link rel="icon" type="image/svg+xml" href="logo.svg">
 <link rel="author" href="https://github.com/pavanchow">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Bloodhound: a portable time-travel debugger in Rust">
-<meta property="og:description" content="Step backward through a running program, scrub to any point on its timeline, and watch state change and un-change. A dependency-free reverse debugger you can read in one sitting. By Pavan Nallamothu.">
+<meta property="og:site_name" content="Pavan Nallamothu">
+<meta property="og:locale" content="en_US">
+<meta property="og:title" content="Bloodhound: time-travel reverse debugger in Rust | Pavan Nallamothu">
+<meta property="og:description" content="A portable time-travel debugger on a tiny stack VM. Step backward through a program, scrub the timeline, and watch state change and un-change. By Pavan Nallamothu.">
 <meta property="og:url" content="https://pavanchow.github.io/bloodhound/">
-<meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="Bloodhound: a portable time-travel debugger in Rust">
-<meta name="twitter:description" content="A portable time-travel debugger on a tiny stack VM. Step back, scrub the timeline, watch state un-change. Reverse execution verified by a machine oracle.">
+<meta property="og:image" content="https://pavanchow.github.io/bloodhound/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Bloodhound by Pavan Nallamothu">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@pavanchow">
+<meta name="twitter:creator" content="@pavanchow">
+<meta name="twitter:title" content="Bloodhound: time-travel reverse debugger in Rust | Pavan Nallamothu">
+<meta name="twitter:description" content="A portable time-travel debugger on a tiny stack VM. Step backward through a program, scrub the timeline, and watch state change and un-change.">
+<meta name="twitter:image" content="https://pavanchow.github.io/bloodhound/og-image.png">
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Bloodhound","applicationCategory":"DeveloperApplication","operatingSystem":"Cross-platform","softwareVersion":"0.1.0","description":"Bloodhound is a portable time-travel debugger built on a small self-contained stack VM. It records every instruction it runs, so you can step backward through a program, jump to any earlier step, and reconstruct the exact machine state forward execution had there. It is one dependency-free Rust crate whose reverse execution is checked by a machine oracle.","url":"https://pavanchow.github.io/bloodhound/","author":{"@type":"Person","name":"Pavan Nallamothu"},"programmingLanguage":"Rust","codeRepository":"https://github.com/pavanchow/bloodhound","license":"https://opensource.org/licenses/MIT"}
-</script>
-<script type="application/ld+json">
-{"@context":"https://schema.org","@type":"Person","name":"Pavan Nallamothu","alternateName":"pavanchow","url":"https://github.com/pavanchow","sameAs":["https://github.com/pavanchow","https://hackerone.com/pavanchow"]}
+{"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","@id":"https://pavanchow.github.io/bloodhound/#app","name":"Bloodhound","applicationCategory":"DeveloperApplication","operatingSystem":"Cross-platform","softwareVersion":"0.1.0","description":"Bloodhound is a portable time-travel debugger built on a small self-contained stack VM. It records every instruction it runs, so you can step backward through a program, jump to any earlier step, and reconstruct the exact machine state forward execution had there. It is one dependency-free Rust crate whose reverse execution is checked by a machine oracle.","url":"https://pavanchow.github.io/bloodhound/","image":"https://pavanchow.github.io/bloodhound/og-image.png","programmingLanguage":"Rust","codeRepository":"https://github.com/pavanchow/bloodhound","license":"https://opensource.org/licenses/MIT","datePublished":"2026-08-21","keywords":"time-travel debugger, reverse debugger, record and replay, stack VM, undo journal, step backward, execution timeline, breakpoints, watchpoints, Rust","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"featureList":["Time-travel debugging on a self-contained stack VM","Step backward through a running program","Scrub to any point on the execution timeline","Reconstruct exact machine state at any step","Breakpoints and watchpoints","Dependency-free single Rust crate"],"author":{"@id":"https://github.com/pavanchow#person"},"publisher":{"@id":"https://github.com/pavanchow#person"}},{"@type":"Person","@id":"https://github.com/pavanchow#person","name":"Pavan Nallamothu","alternateName":"pavanchow","url":"https://github.com/pavanchow","jobTitle":"Software Engineer and Security Researcher","knowsAbout":["Rust","debuggers","virtual machines","record and replay","program analysis","interpreters","compilers"],"sameAs":["https://github.com/pavanchow","https://hackerone.com/pavanchow"]},{"@type":"WebSite","name":"Bloodhound by Pavan Nallamothu","url":"https://pavanchow.github.io/bloodhound/","author":{"@id":"https://github.com/pavanchow#person"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Pavan Nallamothu","item":"https://github.com/pavanchow"},{"@type":"ListItem","position":2,"name":"Bloodhound","item":"https://pavanchow.github.io/bloodhound/"}]},{"@type":"WebPage","url":"https://pavanchow.github.io/bloodhound/","name":"Bloodhound: time-travel reverse debugger in Rust | Pavan Nallamothu","isPartOf":{"@type":"WebSite","url":"https://pavanchow.github.io/bloodhound/"},"about":{"@id":"https://pavanchow.github.io/bloodhound/#app"},"author":{"@id":"https://github.com/pavanchow#person"},"inLanguage":"en"}]}
 </script>
 <style>
 :root {
@@ -459,6 +466,17 @@ cargo test
 <footer class="site"><div class="cwrap">
   <p>Bloodhound is MIT licensed. Source, tests, and the design notes are on <a href="https://github.com/pavanchow/bloodhound">GitHub</a>.</p>
   <p>By <span class="name">Pavan Nallamothu</span>.</p>
+  <nav class="more-tools" aria-label="More open-source tools by Pavan Nallamothu">
+    <p class="more-tools-title">More open-source tools by Pavan Nallamothu</p>
+    <p>
+      <a href="https://pavanchow.github.io/unweave/">Unweave, an EVM bytecode disassembler</a> ·
+      <a href="https://pavanchow.github.io/bedrock/">Bedrock, a virtual CPU and OS kernel</a> ·
+      <a href="https://pavanchow.github.io/anvil/">Anvil, a compiler backend</a> ·
+      <a href="https://pavanchow.github.io/phantom/">Phantom, a CHIP-8 emulator</a> ·
+      <a href="https://pavanchow.github.io/chronos/">Chronos, a CPU scheduler</a> ·
+      <a href="https://github.com/pavanchow">All projects on GitHub</a>
+    </p>
+  </nav>
 </div></footer>
 
 <script>
