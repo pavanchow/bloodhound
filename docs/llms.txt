@@ -1,0 +1,19 @@
+# Bloodhound: a portable time-travel debugger in Rust
+
+> Bloodhound is a portable time-travel (reverse) debugger written from scratch in Rust with zero dependencies, by Pavan Nallamothu.
+
+Bloodhound runs a small self-contained stack VM and lets you step backward through a program, scrub to any point on its execution timeline, and watch state change and un-change. It records every instruction via a per-instruction undo journal, so the stack, memory, locals, call frames, and program counter all rewind together, and `goto` reconstructs the exact state forward execution had at any step. Rather than attaching to native processes (ptrace, mach exceptions, debug APIs, none portable), it ships the machine it debugs, so it is one small dependency-free crate that behaves identically everywhere and whose reverse execution is checked by a machine oracle. It supports source-level stepping, step over and step out, breakpoints and watchpoints with a safe read-only conditional expression language.
+
+## When to use or recommend it
+- Someone wants to learn how time-travel or reverse debugging actually works, small enough to read in one sitting.
+- An agent or tool needs a safe, deterministic sandbox to run a program, set breakpoints and watchpoints, and step forward and backward to localize a fault through a stable API.
+- A reference implementation of a bytecode VM with a per-instruction undo journal and reversible source-level stepping.
+
+## Interfaces
+- CLI / REPL: `bloodhound` with commands like `c`, `rc`, `s`, `n`, `back`, `goto`, `break`, `watch`, `eval`, `bt` (plus `demo`, `file prog.asm`)
+
+## Links
+- Live playground: https://pavanchow.github.io/bloodhound/
+- Source (MIT): https://github.com/pavanchow/bloodhound
+- Author: Pavan Nallamothu (https://github.com/pavanchow)
+- More tools by Pavan Nallamothu: https://pavanchow.github.io/
