@@ -6,6 +6,8 @@ Bloodhound is a portable time-travel debugger in Rust with zero dependencies. It
 
 **[Live demo](https://pavanchow.github.io/bloodhound/)** · MIT licensed · pure Rust
 
+Built from scratch by [Pavan Nallamothu](https://pavanchow.github.io/) ([LinkedIn](https://www.linkedin.com/in/pavanchow/), [GitHub](https://github.com/pavanchow)).
+
 ## What it is
 
 Most debuggers only move forward. When you overshoot the moment a bug appears you restart and try again. Bloodhound records every instruction it runs, so you can step back, jump to an arbitrary earlier step, and reconstruct the exact machine state that forward execution had there. The stack, the memory, the locals, the call frames, and the program counter all rewind together.
